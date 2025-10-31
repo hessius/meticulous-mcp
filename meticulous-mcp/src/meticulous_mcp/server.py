@@ -19,7 +19,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 import json
 import os
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
 from mcp.server.fastmcp import FastMCP
 
@@ -92,9 +92,31 @@ def get_profile(profile_id: str) -> Dict[str, Any]:
 
 
 @mcp.tool()
-def update_profile(input_data: ProfileUpdateInput) -> Dict[str, Any]:
+def update_profile(
+    profile_id: str,
+    name: Optional[str] = None,
+    temperature: Optional[Union[float, int, str]] = None,
+    final_weight: Optional[Union[float, int, str]] = None,
+    stages_json: Optional[str] = None,
+) -> Dict[str, Any]:
     """Update an existing profile."""
     _ensure_initialized()
+    # Convert temperature and final_weight to float if they're strings
+    temp_float = None
+    if temperature is not None:
+        temp_float = float(temperature) if isinstance(temperature, (str, int)) else temperature
+    
+    weight_float = None
+    if final_weight is not None:
+        weight_float = float(final_weight) if isinstance(final_weight, (str, int)) else final_weight
+    
+    input_data = ProfileUpdateInput(
+        profile_id=profile_id,
+        name=name,
+        temperature=temp_float,
+        final_weight=weight_float,
+        stages_json=stages_json,
+    )
     return update_profile_tool(input_data)
 
 

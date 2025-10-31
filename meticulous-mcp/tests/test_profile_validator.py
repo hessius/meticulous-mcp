@@ -499,3 +499,156 @@ def test_validate_empty_profile(validator):
     assert not is_valid
     assert len(errors) > 0
 
+
+def test_lint_missing_limits_field(validator):
+    """Test linting detects missing limits field."""
+    profile = {
+        "name": "Test Profile",
+        "id": "test-id",
+        "temperature": 90.0,
+        "stages": [
+            {
+                "name": "Stage 1",
+                "key": "stage_1",
+                "type": "flow",
+                "dynamics": {"points": [[0, 4]], "over": "time"},
+                "exit_triggers": [{"type": "time", "value": 30}],
+                # Missing limits field
+            }
+        ],
+    }
+    warnings = validator.lint(profile)
+    assert any("missing 'limits' field" in w.lower() for w in warnings)
+    assert any("limits" in w.lower() for w in warnings)
+
+
+def test_lint_null_limits_field(validator):
+    """Test linting detects null limits field."""
+    profile = {
+        "name": "Test Profile",
+        "id": "test-id",
+        "temperature": 90.0,
+        "stages": [
+            {
+                "name": "Stage 1",
+                "key": "stage_1",
+                "type": "flow",
+                "dynamics": {"points": [[0, 4]], "over": "time"},
+                "exit_triggers": [{"type": "time", "value": 30}],
+                "limits": None,  # null limits
+            }
+        ],
+    }
+    warnings = validator.lint(profile)
+    assert any("limits" in w.lower() and "null" in w.lower() for w in warnings)
+
+
+def test_lint_missing_relative_field(validator):
+    """Test linting detects missing relative field in exit triggers."""
+    profile = {
+        "name": "Test Profile",
+        "id": "test-id",
+        "temperature": 90.0,
+        "stages": [
+            {
+                "name": "Stage 1",
+                "key": "stage_1",
+                "type": "flow",
+                "dynamics": {"points": [[0, 4]], "over": "time"},
+                "exit_triggers": [
+                    {"type": "time", "value": 30},  # Missing relative field
+                    {"type": "weight", "value": 40, "relative": False},  # Has relative
+                ],
+            }
+        ],
+    }
+    warnings = validator.lint(profile)
+    assert any("missing 'relative' field" in w.lower() for w in warnings)
+    assert any("relative" in w.lower() for w in warnings)
+
+
+def test_lint_null_relative_field(validator):
+    """Test linting detects null relative field in exit triggers."""
+    profile = {
+        "name": "Test Profile",
+        "id": "test-id",
+        "temperature": 90.0,
+        "stages": [
+            {
+                "name": "Stage 1",
+                "key": "stage_1",
+                "type": "flow",
+                "dynamics": {"points": [[0, 4]], "over": "time"},
+                "exit_triggers": [
+                    {"type": "time", "value": 30, "relative": None},  # null relative
+                ],
+            }
+        ],
+    }
+    warnings = validator.lint(profile)
+    assert any("missing 'relative' field" in w.lower() or ("relative" in w.lower() and "null" in w.lower()) for w in warnings)
+
+
+def test_lint_multiple_normalization_issues(validator):
+    """Test linting detects multiple normalization issues."""
+    profile = {
+        "name": "Test Profile",
+        "id": "test-id",
+        "temperature": 90.0,
+        "stages": [
+            {
+                "name": "Stage 1",
+                "key": "stage_1",
+                "type": "flow",
+                "dynamics": {"points": [[0, 4]], "over": "time"},
+                "exit_triggers": [
+                    {"type": "time", "value": 30},  # Missing relative
+                ],
+                "limits": None,  # null limits
+            },
+            {
+                "name": "Stage 2",
+                "key": "stage_2",
+                "type": "pressure",
+                "dynamics": {"points": [[0, 8]], "over": "time"},
+                "exit_triggers": [
+                    {"type": "weight", "value": 40},  # Missing relative
+                ],
+                # Missing limits field entirely
+            },
+        ],
+    }
+    warnings = validator.lint(profile)
+    # Should have warnings for both stages
+    limits_warnings = [w for w in warnings if "limits" in w.lower()]
+    relative_warnings = [w for w in warnings if "relative" in w.lower()]
+    assert len(limits_warnings) >= 2  # At least 2 limits warnings
+    assert len(relative_warnings) >= 2  # At least 2 relative warnings
+
+
+def test_lint_no_warnings_when_fields_present(validator):
+    """Test linting doesn't warn when fields are present with valid values."""
+    profile = {
+        "name": "Test Profile",
+        "id": "test-id",
+        "temperature": 90.0,
+        "stages": [
+            {
+                "name": "Stage 1",
+                "key": "stage_1",
+                "type": "flow",
+                "dynamics": {"points": [[0, 4]], "over": "time"},
+                "exit_triggers": [
+                    {"type": "time", "value": 30, "relative": False},  # Has relative
+                ],
+                "limits": [],  # Has limits (empty array is valid)
+            }
+        ],
+    }
+    warnings = validator.lint(profile)
+    # Should not have warnings about missing limits or relative
+    limits_warnings = [w for w in warnings if "missing 'limits' field" in w.lower() or ("limits" in w.lower() and "null" in w.lower())]
+    relative_warnings = [w for w in warnings if "missing 'relative' field" in w.lower()]
+    assert len(limits_warnings) == 0
+    assert len(relative_warnings) == 0
+

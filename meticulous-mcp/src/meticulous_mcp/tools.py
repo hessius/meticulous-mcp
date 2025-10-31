@@ -33,6 +33,7 @@ from .profile_builder import (
     create_variable,
     profile_to_dict,
     dict_to_profile,
+    normalize_profile,
 )
 from .profile_validator import ProfileValidationError, ProfileValidator
 
@@ -267,21 +268,23 @@ def create_profile_tool(input_data: ProfileCreateInput) -> Dict[str, Any]:
             from meticulous.profile import Display
             profile.display = Display(accentColor=input_data.accent_color)
         
-        # Validate profile
-        profile_dict = profile_to_dict(profile)
+        # Lint profile BEFORE normalization to catch issues that will be auto-fixed
+        # This helps agents understand what normalization will happen
+        profile_dict_for_linting = profile_to_dict(profile, normalize=False)
+        warnings = _validator.lint(profile_dict_for_linting)
+        
+        # Validate profile (use normalized version for validation)
+        profile_dict = profile_to_dict(profile, normalize=True)
         
         # Run validation (will raise if invalid)
         _validator.validate_and_raise(profile_dict)
-        
-        # Run linting to provide warnings/feedback
-        warnings = _validator.lint(profile_dict)
         
     except ProfileValidationError as e:
         # Get linting warnings even if validation fails
         warnings = []
         try:
-            profile_dict = profile_to_dict(profile)
-            warnings = _validator.lint(profile_dict)
+            profile_dict_for_linting = profile_to_dict(profile, normalize=False)
+            warnings = _validator.lint(profile_dict_for_linting)
         except Exception:
             pass  # Ignore lint errors if we can't generate them
         
@@ -308,8 +311,11 @@ def create_profile_tool(input_data: ProfileCreateInput) -> Dict[str, Any]:
             "\n".join(f"  - {detail}" for detail in error_details)
         )
     
+    # Normalize profile before saving (ensures empty limits lists become None)
+    normalized_profile = normalize_profile(profile)
+    
     # Save profile
-    result = _api_client.save_profile(profile)
+    result = _api_client.save_profile(normalized_profile)
     if isinstance(result, APIError):
         error_msg = result.error or result.status or "Unknown error"
         raise Exception(f"Failed to save profile: {error_msg}")
@@ -433,8 +439,17 @@ def update_profile_tool(input_data: ProfileUpdateInput) -> Dict[str, Any]:
                 if "exit_triggers" not in stage_dict:
                     stage_dict["exit_triggers"] = []
                 
-                # Ensure limits is a list (can be empty)
-                if "limits" not in stage_dict:
+                # Normalize exit_triggers - ensure relative is always present
+                for trigger in stage_dict["exit_triggers"]:
+                    if "relative" not in trigger or trigger.get("relative") is None:
+                        trigger["relative"] = False
+                
+                # Ensure limits is always present as an array (empty if None/missing)
+                # The machine expects limits to always be an array, not None or missing
+                if "limits" not in stage_dict or stage_dict.get("limits") is None:
+                    stage_dict["limits"] = []
+                elif isinstance(stage_dict["limits"], list) and len(stage_dict["limits"]) == 0:
+                    # Keep as empty array
                     stage_dict["limits"] = []
                 
                 transformed_stages.append(stage_dict)
@@ -500,19 +515,22 @@ def update_profile_tool(input_data: ProfileUpdateInput) -> Dict[str, Any]:
     # Validate updated profile
     warnings = []  # Initialize warnings list
     try:
-        profile_dict = profile_to_dict(existing)
+        # Lint profile BEFORE normalization to catch issues that will be auto-fixed
+        # This helps agents understand what normalization will happen
+        profile_dict_for_linting = profile_to_dict(existing, normalize=False)
+        warnings = _validator.lint(profile_dict_for_linting)
+        
+        # Validate profile (use normalized version for validation)
+        profile_dict = profile_to_dict(existing, normalize=True)
         
         # Run validation (will raise if invalid)
         _validator.validate_and_raise(profile_dict)
         
-        # Run linting to provide warnings/feedback even if validation passes
-        warnings = _validator.lint(profile_dict)
-        
     except ProfileValidationError as e:
         # Get linting warnings even if validation fails (might help with context)
         try:
-            profile_dict = profile_to_dict(existing)
-            warnings = _validator.lint(profile_dict)
+            profile_dict_for_linting = profile_to_dict(existing, normalize=False)
+            warnings = _validator.lint(profile_dict_for_linting)
         except Exception:
             warnings = []  # Ensure warnings is initialized even if linting fails
         
@@ -527,8 +545,11 @@ def update_profile_tool(input_data: ProfileUpdateInput) -> Dict[str, Any]:
         
         raise Exception(error_msg)
     
+    # Normalize profile before saving (ensures empty limits lists become None)
+    normalized_profile = normalize_profile(existing)
+    
     # Save updated profile
-    result = _api_client.save_profile(existing)
+    result = _api_client.save_profile(normalized_profile)
     if isinstance(result, APIError):
         error_msg = result.error or result.status or "Unknown error"
         raise Exception(f"Failed to update profile: {error_msg}")
@@ -584,12 +605,15 @@ def duplicate_profile_tool(
         profile_id=str(uuid.uuid4()),
     )
     
+    # Normalize profile before saving (ensures empty limits lists become None)
+    normalized_new_profile = normalize_profile(new_profile)
+    
     # Validate new profile
-    profile_dict = profile_to_dict(new_profile)
+    profile_dict = profile_to_dict(normalized_new_profile)
     _validator.validate_and_raise(profile_dict)
     
     # Save new profile
-    result = _api_client.save_profile(new_profile)
+    result = _api_client.save_profile(normalized_new_profile)
     if isinstance(result, APIError):
         error_msg = result.error or result.status or "Unknown error"
         raise Exception(f"Failed to save duplicated profile: {error_msg}")

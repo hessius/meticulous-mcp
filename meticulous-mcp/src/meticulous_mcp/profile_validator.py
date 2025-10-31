@@ -191,6 +191,13 @@ class ProfileValidator:
                         has_time_trigger = any(et.get("type") == "time" for et in exit_triggers if isinstance(et, dict))
                         if not has_weight_trigger and not has_time_trigger:
                             warnings.append(f"Stage '{stage_name}' has exit triggers but none are weight or time-based - consider adding a weight/time trigger")
+                        
+                        # Check for missing 'relative' field in exit triggers
+                        # The machine requires 'relative' to always be present (defaults to false)
+                        for idx, trigger in enumerate(exit_triggers):
+                            if isinstance(trigger, dict):
+                                if "relative" not in trigger or trigger.get("relative") is None:
+                                    warnings.append(f"Stage '{stage_name}' exit trigger {idx+1} ({trigger.get('type', 'unknown')}) is missing 'relative' field - will be normalized to false. The machine requires 'relative' to always be present in exit triggers.")
                     
                     # Check dynamics
                     dynamics = stage.get("dynamics")
@@ -209,6 +216,13 @@ class ProfileValidator:
                     stage_type = stage.get("type", "")
                     if stage_type not in ["power", "flow", "pressure"]:
                         warnings.append(f"Stage '{stage_name}' has invalid type '{stage_type}' - should be 'power', 'flow', or 'pressure'")
+                    
+                    # Check for missing or None 'limits' field
+                    # The machine requires 'limits' to always be present as an array (even if empty)
+                    if "limits" not in stage:
+                        warnings.append(f"Stage '{stage_name}' is missing 'limits' field - will be normalized to empty array []. The machine requires 'limits' to always be present as an array in stages.")
+                    elif stage.get("limits") is None:
+                        warnings.append(f"Stage '{stage_name}' has 'limits' set to null - will be normalized to empty array []. The machine requires 'limits' to always be an array, not null.")
                     
                     # Check for duplicate keys
                     if i > 0:

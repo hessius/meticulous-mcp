@@ -14,6 +14,7 @@ from meticulous_mcp.profile_builder import (
     create_variable,
     profile_to_dict,
     dict_to_profile,
+    normalize_profile,
 )
 
 
@@ -298,16 +299,22 @@ def test_create_profile_with_optional_fields():
 
 
 def test_profile_to_dict_excludes_none():
-    """Test that profile_to_dict excludes None values."""
+    """Test that profile_to_dict excludes None values (except normalized fields)."""
     profile = create_profile(
         name="Test Profile",
         author="Test Author",
         stages=[],
     )
-    profile_dict = profile_to_dict(profile)
-    # None values should be excluded
+    profile_dict = profile_to_dict(profile, normalize=True)
+    # None values should be excluded (except limits/relative which are normalized)
     assert "variables" not in profile_dict or profile_dict["variables"] is not None
     assert "display" not in profile_dict or profile_dict["display"] is not None
+    
+    # If we have stages, limits should be normalized to [] not excluded
+    if "stages" in profile_dict and len(profile_dict["stages"]) > 0:
+        for stage in profile_dict["stages"]:
+            if "limits" in stage:
+                assert stage["limits"] == []  # Normalized to empty array, not excluded
 
 
 def test_dict_to_profile_with_all_fields():
@@ -417,4 +424,218 @@ def test_create_variable_all_types():
         variable = create_variable("Test", f"var_{var_type}", var_type, 10.0)
         assert variable.type == var_type
         assert variable.key == f"var_{var_type}"
+
+
+def test_profile_to_dict_normalizes_limits():
+    """Test that profile_to_dict normalizes None limits to empty array."""
+    dynamics = create_dynamics(points=[[0, 4]], over="time")
+    exit_triggers = [create_exit_trigger("time", 30.0)]
+    stage = create_stage(
+        name="Stage 1",
+        key="stage_1",
+        stage_type="flow",
+        dynamics=dynamics,
+        exit_triggers=exit_triggers,
+        limits=None,  # None limits
+    )
+    profile = create_profile(
+        name="Test Profile",
+        author="Test Author",
+        stages=[stage],
+    )
+    
+    # With normalization (default)
+    profile_dict = profile_to_dict(profile, normalize=True)
+    assert "limits" in profile_dict["stages"][0]
+    assert profile_dict["stages"][0]["limits"] == []
+    
+    # Without normalization
+    profile_dict_no_norm = profile_to_dict(profile, normalize=False)
+    # limits should be excluded or None (depending on exclude_none behavior)
+    if "limits" in profile_dict_no_norm["stages"][0]:
+        assert profile_dict_no_norm["stages"][0]["limits"] is None or profile_dict_no_norm["stages"][0]["limits"] == []
+
+
+def test_profile_to_dict_normalizes_relative():
+    """Test that profile_to_dict normalizes missing relative to False."""
+    dynamics = create_dynamics(points=[[0, 4]], over="time")
+    # Create exit trigger without relative field
+    exit_triggers = [create_exit_trigger("time", 30.0)]  # relative defaults to None
+    stage = create_stage(
+        name="Stage 1",
+        key="stage_1",
+        stage_type="flow",
+        dynamics=dynamics,
+        exit_triggers=exit_triggers,
+    )
+    profile = create_profile(
+        name="Test Profile",
+        author="Test Author",
+        stages=[stage],
+    )
+    
+    # With normalization (default)
+    profile_dict = profile_to_dict(profile, normalize=True)
+    assert "relative" in profile_dict["stages"][0]["exit_triggers"][0]
+    assert profile_dict["stages"][0]["exit_triggers"][0]["relative"] is False
+    
+    # Without normalization
+    profile_dict_no_norm = profile_to_dict(profile, normalize=False)
+    # relative might be excluded if None
+    trigger = profile_dict_no_norm["stages"][0]["exit_triggers"][0]
+    if "relative" in trigger:
+        assert trigger["relative"] is None
+
+
+def test_profile_to_dict_normalizes_both():
+    """Test that profile_to_dict normalizes both limits and relative."""
+    dynamics = create_dynamics(points=[[0, 4]], over="time")
+    exit_triggers = [create_exit_trigger("time", 30.0)]  # relative=None
+    stage = create_stage(
+        name="Stage 1",
+        key="stage_1",
+        stage_type="flow",
+        dynamics=dynamics,
+        exit_triggers=exit_triggers,
+        limits=None,  # None limits
+    )
+    profile = create_profile(
+        name="Test Profile",
+        author="Test Author",
+        stages=[stage],
+    )
+    
+    profile_dict = profile_to_dict(profile, normalize=True)
+    stage_dict = profile_dict["stages"][0]
+    
+    # Both should be normalized
+    assert stage_dict["limits"] == []
+    assert stage_dict["exit_triggers"][0]["relative"] is False
+
+
+def test_normalize_profile_with_none_limits():
+    """Test normalize_profile converts None limits to empty array."""
+    dynamics = create_dynamics(points=[[0, 4]], over="time")
+    exit_triggers = [create_exit_trigger("time", 30.0)]
+    stage = create_stage(
+        name="Stage 1",
+        key="stage_1",
+        stage_type="flow",
+        dynamics=dynamics,
+        exit_triggers=exit_triggers,
+        limits=None,
+    )
+    profile = create_profile(
+        name="Test Profile",
+        author="Test Author",
+        stages=[stage],
+    )
+    
+    normalized = normalize_profile(profile)
+    assert normalized.stages[0].limits == []
+
+
+def test_normalize_profile_with_missing_relative():
+    """Test normalize_profile sets missing relative to False."""
+    dynamics = create_dynamics(points=[[0, 4]], over="time")
+    # Create trigger without relative
+    exit_triggers = [create_exit_trigger("time", 30.0)]  # relative=None
+    stage = create_stage(
+        name="Stage 1",
+        key="stage_1",
+        stage_type="flow",
+        dynamics=dynamics,
+        exit_triggers=exit_triggers,
+    )
+    profile = create_profile(
+        name="Test Profile",
+        author="Test Author",
+        stages=[stage],
+    )
+    
+    normalized = normalize_profile(profile)
+    # After normalization, relative should be False
+    # But Pydantic might exclude None, so check via dict
+    normalized_dict = profile_to_dict(normalized, normalize=True)
+    assert normalized_dict["stages"][0]["exit_triggers"][0]["relative"] is False
+
+
+def test_normalize_profile_preserves_existing_values():
+    """Test normalize_profile preserves existing non-None values."""
+    dynamics = create_dynamics(points=[[0, 4]], over="time")
+    exit_triggers = [
+        create_exit_trigger("time", 30.0, relative=True),  # Has relative=True
+        create_exit_trigger("weight", 40.0, relative=False),  # Has relative=False
+    ]
+    limits = [create_limit("pressure", 9.0)]
+    stage = create_stage(
+        name="Stage 1",
+        key="stage_1",
+        stage_type="flow",
+        dynamics=dynamics,
+        exit_triggers=exit_triggers,
+        limits=limits,  # Has limits
+    )
+    profile = create_profile(
+        name="Test Profile",
+        author="Test Author",
+        stages=[stage],
+    )
+    
+    normalized = normalize_profile(profile)
+    # Should preserve existing values
+    assert len(normalized.stages[0].limits) == 1
+    assert normalized.stages[0].limits[0].type == "pressure"
+    
+    normalized_dict = profile_to_dict(normalized, normalize=True)
+    # Should preserve relative values
+    assert normalized_dict["stages"][0]["exit_triggers"][0]["relative"] is True
+    assert normalized_dict["stages"][0]["exit_triggers"][1]["relative"] is False
+
+
+def test_normalize_profile_empty_limits_array():
+    """Test normalize_profile handles empty limits array correctly."""
+    dynamics = create_dynamics(points=[[0, 4]], over="time")
+    exit_triggers = [create_exit_trigger("time", 30.0)]
+    stage = create_stage(
+        name="Stage 1",
+        key="stage_1",
+        stage_type="flow",
+        dynamics=dynamics,
+        exit_triggers=exit_triggers,
+        limits=[],  # Empty array, not None
+    )
+    profile = create_profile(
+        name="Test Profile",
+        author="Test Author",
+        stages=[stage],
+    )
+    
+    normalized = normalize_profile(profile)
+    assert normalized.stages[0].limits == []
+
+
+def test_normalize_profile_no_changes_needed():
+    """Test normalize_profile returns same object when no normalization needed."""
+    dynamics = create_dynamics(points=[[0, 4]], over="time")
+    exit_triggers = [create_exit_trigger("time", 30.0, relative=False)]
+    limits = [create_limit("pressure", 9.0)]
+    stage = create_stage(
+        name="Stage 1",
+        key="stage_1",
+        stage_type="flow",
+        dynamics=dynamics,
+        exit_triggers=exit_triggers,
+        limits=limits,
+    )
+    profile = create_profile(
+        name="Test Profile",
+        author="Test Author",
+        stages=[stage],
+    )
+    
+    normalized = normalize_profile(profile)
+    # If no changes needed, should return same or equivalent profile
+    assert normalized.stages[0].limits == limits
+    assert len(normalized.stages[0].exit_triggers) == 1
 

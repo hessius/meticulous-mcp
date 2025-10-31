@@ -196,16 +196,40 @@ def create_profile(
     )
 
 
-def profile_to_dict(profile: Profile) -> Dict[str, Any]:
+def profile_to_dict(profile: Profile, normalize: bool = True) -> Dict[str, Any]:
     """Convert a Profile object to a dictionary.
     
     Args:
         profile: Profile object
+        normalize: If True, normalizes fields (limits, relative) for machine compatibility.
+                   If False, returns raw dict without normalization (useful for linting).
         
     Returns:
         Dictionary representation of the profile
     """
-    return profile.model_dump(exclude_none=True)
+    profile_dict = profile.model_dump(exclude_none=True)
+    
+    if normalize:
+        # Ensure limits is always present as an empty array if None or missing
+        # The machine expects limits to always be an array, not missing/null
+        if "stages" in profile_dict:
+            for stage in profile_dict["stages"]:
+                if "limits" not in stage or stage.get("limits") is None:
+                    # Set to empty array if missing or None
+                    stage["limits"] = []
+                elif isinstance(stage["limits"], list) and len(stage["limits"]) == 0:
+                    # Keep as empty array (don't convert to None)
+                    stage["limits"] = []
+                
+                # Ensure exit_triggers have required fields
+                if "exit_triggers" in stage:
+                    for trigger in stage["exit_triggers"]:
+                        # Ensure relative is always present (default to False if None/missing)
+                        # The machine expects relative to always be present
+                        if "relative" not in trigger or trigger.get("relative") is None:
+                            trigger["relative"] = False
+    
+    return profile_dict
 
 
 def dict_to_profile(data: Dict[str, Any]) -> Profile:
@@ -218,4 +242,55 @@ def dict_to_profile(data: Dict[str, Any]) -> Profile:
         Profile object
     """
     return Profile(**data)
+
+
+def normalize_profile(profile: Profile) -> Profile:
+    """Normalize a Profile object to ensure it's ready for saving.
+    
+    This function ensures that:
+    - Missing or None limits in stages are converted to empty arrays []
+    - Missing or None relative in exit_triggers are set to False
+    - The machine expects these fields to always be present
+    
+    Args:
+        profile: Profile object to normalize
+        
+    Returns:
+        Normalized Profile object (may be the same object if no changes needed)
+    """
+    # Check if any stage needs normalization
+    needs_normalization = False
+    normalized_stages = []
+    
+    for stage in profile.stages:
+        stage_normalized = False
+        stage_dict = stage.model_dump(exclude_none=False)  # Don't exclude None so we can see what needs fixing
+        
+        # If limits is None or missing, ensure it's an empty array
+        if not hasattr(stage, 'limits') or stage.limits is None:
+            stage_dict['limits'] = []
+            stage_normalized = True
+        
+        # Normalize exit_triggers - ensure relative is always present
+        if 'exit_triggers' in stage_dict:
+            for trigger in stage_dict['exit_triggers']:
+                # Ensure relative is always present (default to False if None/missing)
+                if 'relative' not in trigger or trigger.get('relative') is None:
+                    trigger['relative'] = False
+                    stage_normalized = True
+        
+        if stage_normalized:
+            needs_normalization = True
+            # Create new Stage with normalized values
+            normalized_stages.append(Stage(**stage_dict))
+        else:
+            normalized_stages.append(stage)
+    
+    # If normalization was needed, create a new Profile with normalized stages
+    if needs_normalization:
+        profile_dict = profile.model_dump()
+        profile_dict['stages'] = normalized_stages
+        return Profile(**profile_dict)
+    
+    return profile
 
