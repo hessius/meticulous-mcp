@@ -7,11 +7,12 @@
 
 ## Quick Run
 
-### Option 1: Using the run script (Recommended)
+### Option 1: Using the run script to see if it's running correctly(Recommended)
 
 ```bash
 cd meticulous-mcp
 python3.11 run_server.py
+list_profiles()
 ```
 
 ### Option 2: Using Python module
