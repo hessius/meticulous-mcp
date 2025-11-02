@@ -39,7 +39,8 @@ You can use natural language to describe the kind of profile you want, stages re
 
 You must have access to an agent that can use desktop/local MCP via STDIO. Popular clients for this include Claude Desktop, Goose, LibreChat, Cherry Studio, and LM Studio. It's only been tested with Goose, Cursor, and Claude Desktop. ChatGPT can not currently call MCP tools on your desktop.
 
-**⚠️ Important Disclaimer:** Please use Meticulous MCP at your own risk. There's no warranty of any kind, and if your AI builds a whacky profile that bricks your Meticulous, the creators are not responsible. The MCP server is only a communication layer that allows AI to talk to your Meticulous. While there is profile validation, and the Meticulous fails to load certain types of weird profiles, we can't guarantee everything. Please check your profiles in the app before running them.
+## Disclaimer
+**⚠️ Important Disclaimer:** Please use Meticulous MCP at your own risk. There's no warranty of any kind, and if your AI builds a whacky profile that bricks your Meticulous, the creators are not responsible. The MCP server is only a communication layer that allows AI to talk to your Meticulous. While there is profile validation, and the Meticulous fails to load certain types of weird profiles, we can't guarantee everything. **Please check your profiles in the app before running them.** In particular, the less smart the model, the more mistakes it might make, including getting the JSON submission right. The server gives the model feedback on its submission mistakes so that it can try again, but some models aren't good enough to fix themselves.
 
 Lastly, don't bother the Meticulous development team about Meticulous MCP. We did not submit it to Meticulous intentionally, because it does not meet Meticulous' standards for review.
 
