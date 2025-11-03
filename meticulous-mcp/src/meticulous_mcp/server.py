@@ -342,22 +342,22 @@ Note: No pressure target, entirely flow-controlled
 ### Sour, thin, salty (Under-extracted)
 **Likely Cause**: Insufficient contact time or energy
 **Solutions**:
-1. Increase Infusion Pressure/Flow: 8 bar → 9 bar, or 2 ml/s → 2.5 ml/s
+1. Increase Infusion Pressure/Flow: 8 bar -> 9 bar, or 2 ml/s -> 2.5 ml/s
 2. Extend Infusion Time: Increase yield before tapering begins
-3. Increase Temperature: 92°C → 94°C
+3. Increase Temperature: 92°C -> 94°C
 
 ### Bitter, astringent, dry (Over-extracted)
 **Likely Cause**: Puck channeled or too much extraction at end
 **Solutions**:
-1. Lower Infusion Pressure: 9 bar → 8 bar
+1. Lower Infusion Pressure: 9 bar -> 8 bar
 2. Taper Earlier/Aggressively: Start ramp-down sooner or decrease to lower final pressure
-3. Lower Temperature: 94°C → 92°C
+3. Lower Temperature: 94°C -> 92°C
 
 ### Shot starts too fast (gushing)
 **Likely Cause**: Grind too coarse, or pre-infusion too aggressive
 **Solutions**:
 1. Grind Finer (primary fix)
-2. Decrease Pre-infusion Flow: 4 ml/s → 2 ml/s
+2. Decrease Pre-infusion Flow: 4 ml/s -> 2 ml/s
 
 ### Shot chokes (starts too slow)
 **Likely Cause**: Grind too fine
@@ -639,6 +639,7 @@ In this example:
 **User Preference**:
 - Allow users to customize strength (by varying flow/pressure)
 - Provide control over extraction speed and intensity
+"""
 
 
 @mcp.resource("espresso://schema")
@@ -685,7 +686,7 @@ def create_espresso_profile(
     # System context with knowledge
     system_context = """You are an expert espresso profile creator for the Meticulous machine. 
 
-Use the four-phase approach: Pre-infusion → Bloom (optional) → Infusion → Tapering.
+Use the four-phase approach: Pre-infusion -> Bloom (optional) -> Infusion -> Tapering.
 
 Guidelines:
 - Pre-infusion: Flow 2-4 ml/s, end at ~2 bar or first drops
@@ -693,10 +694,10 @@ Guidelines:
 - Tapering: Reduce pressure/flow in final 1/3 of shot to minimize bitterness
 
 Profile Blueprints:
-- Classic Lever (medium-dark roasts): Pre-infusion 3 ml/s → Infusion 9 bar → Taper 9→5 bar, 36g target
-- Turbo Shot (light roasts): Pre-infusion 6 ml/s → Infusion 6 bar, 15s → Taper 6→3 bar, 54g target
-- Soup Shot (very light): Flow-controlled, 4 ml/s → 8 ml/s, 72g target
-- Bloom & Extract (fresh coffee <7 days): Pre-infusion → 20s bloom → Infusion → Taper
+- Classic Lever (medium-dark roasts): Pre-infusion 3 ml/s -> Infusion 9 bar -> Taper 9->5 bar, 36g target
+- Turbo Shot (light roasts): Pre-infusion 6 ml/s -> Infusion 6 bar, 15s -> Taper 6->3 bar, 54g target
+- Soup Shot (very light): Flow-controlled, 4 ml/s -> 8 ml/s, 72g target
+- Bloom & Extract (fresh coffee <7 days): Pre-infusion -> 20s bloom -> Infusion -> Taper
 
 Temperature Guidelines:
 - Light roasts: 92-96°C
@@ -792,18 +793,18 @@ def modify_espresso_profile(
 Common Issues & Solutions:
 
 **Sour, thin, salty (Under-extracted)**:
-- Increase infusion pressure/flow (8→9 bar or 2→2.5 ml/s)
+- Increase infusion pressure/flow (8->9 bar or 2->2.5 ml/s)
 - Extend infusion time (increase yield before tapering)
-- Increase temperature (92→94°C)
+- Increase temperature (92->94°C)
 
 **Bitter, astringent, dry (Over-extracted)**:
-- Lower infusion pressure (9→8 bar)
+- Lower infusion pressure (9->8 bar)
 - Taper earlier/more aggressively (start ramp-down sooner, lower final pressure)
-- Lower temperature (94→92°C)
+- Lower temperature (94->92°C)
 
 **Shot starts too fast (gushing)**:
 - Primary: Grind finer
-- Profile fix: Decrease pre-infusion flow (4→2 ml/s)
+- Profile fix: Decrease pre-infusion flow (4->2 ml/s)
 
 **Shot chokes (starts too slow)**:
 - Primary: Grind coarser

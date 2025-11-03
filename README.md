@@ -1,6 +1,21 @@
 # Meticulous Espresso Profile MCP Server
 
-An MCP (Model Context Protocol) server for managing espresso profiles on your Meticulous espresso machine. Use AI assistants like Claude Desktop or Cursor to create, validate, and manage espresso profiles without diving deep in application or manual JSON editing.
+An MCP (Model Context Protocol) server for managing espresso profiles on your Meticulous espresso machine. Use AI assistants like Claude Desktop or Goose to create, validate, and manage espresso profiles without diving deep in application or manual JSON editing.
+
+## What is Meticulous MCP?
+
+Meticulous MCP allows you to create and install Meticulous profiles on your machine via AI agents.
+
+You can use natural language to describe the kind of profile you want, stages required, flow rate, temperature, etc., and an agent will build a profile for you -- no JSON or fiddling in the app required. The server helps agents understand espresso profiling and gives them tools to interact with your Meticulous via the API. The server is built off of Meticulous' Python API, the Meticulous espresso profile schema, and wisdom from Lance Hedrick, Aramse, and Home-Barista.com. The knowledge base for Agents needs work, and will evolve over time. It's not perfect and you may not like its suggestions, but you can be specific with your guidance to get around that.
+
+You must have access to an agent that can use desktop/local MCP via STDIO. Popular clients for this include Claude Desktop, Goose, LibreChat, Cherry Studio, and LM Studio. It's only been tested with Goose, Cursor, and Claude Desktop. ChatGPT can not currently call MCP tools on your desktop.
+
+## Disclaimer
+**⚠️ Important Disclaimer:** Please use Meticulous MCP at your own risk. There's no warranty of any kind, and if your AI builds a whacky profile that bricks your Meticulous, the creators are not responsible. The MCP server is only a communication layer that allows AI to talk to your Meticulous. While there is profile validation, and the Meticulous fails to load certain types of weird profiles, we can't guarantee everything. The only safety limit is 15 bars pressure, which appears to be the limit in the app. **Please check your profiles in the app before running them.** In particular, the less smart the model, the more mistakes it might make, including getting the JSON submission right. The server gives the model feedback on its submission mistakes so that it can try again, but some models aren't good enough to fix themselves. If you model can't get the submission right over many tries, try a smarter model.
+
+Lastly, **Meticulous MCP is not a product of Meticulous Home**. Please don't bother the Meticulous development team about Meticulous MCP. We did not submit it to Meticulous intentionally, because it does not meet Meticulous' standards for review. The server is a fun tool to build profiles, not part of the product.
+
+Have fun profiling!
 
 ## Quick Start
 
@@ -30,21 +45,6 @@ pip install -r requirements.txt
 ```
 
 **Note:** This project uses local dependencies (`pyMeticulous` and `python-sdk`). Make sure these directories are in the parent folder alongside `meticulous-mcp`.
-
-## What is Meticulous MCP?
-
-Meticulous MCP allows you to create and install Meticulous profiles on your machine via AI agents.
-
-You can use natural language to describe the kind of profile you want, stages required, flow rate, temperature, etc., and an agent will build a profile for you -- no JSON or fiddling in the app required. The server helps agents understand espresso profiling and gives them tools to interact with your Meticulous via the API. The server is built off of Meticulous' Python API, the Meticulous espresso profile schema, and wisdom from Lance Hedrick, Aramse, and Home-Barista.com. The knowledge base for Agents needs work, and will evolve over time. It's not perfect and you may not like its suggestions, but you can be specific with your guidance to get around that.
-
-You must have access to an agent that can use desktop/local MCP via STDIO. Popular clients for this include Claude Desktop, Goose, LibreChat, Cherry Studio, and LM Studio. It's only been tested with Goose, Cursor, and Claude Desktop. ChatGPT can not currently call MCP tools on your desktop.
-
-## Disclaimer
-**⚠️ Important Disclaimer:** Please use Meticulous MCP at your own risk. There's no warranty of any kind, and if your AI builds a whacky profile that bricks your Meticulous, the creators are not responsible. The MCP server is only a communication layer that allows AI to talk to your Meticulous. While there is profile validation, and the Meticulous fails to load certain types of weird profiles, we can't guarantee everything. **Please check your profiles in the app before running them.** In particular, the less smart the model, the more mistakes it might make, including getting the JSON submission right. The server gives the model feedback on its submission mistakes so that it can try again, but some models aren't good enough to fix themselves. If you model can't get the submission right over many tries, try a smarter model.
-
-Lastly, **Meticulous MCP is not a product of Meticulous Home**. Please don't bother the Meticulous development team about Meticulous MCP. We did not submit it to Meticulous intentionally, because it does not meet Meticulous' standards for review. The server is a fun tool to build profiles, not part of the product.
-
-Have fun profiling!
 
 ### Step 3: Configure Your MCP Client
 

@@ -98,7 +98,6 @@ class ProfileValidator:
         errors = []
         try:
             self._validator.validate(profile)
-            return True, []
         except ValidationError as e:
             errors.append(self._format_error(e))
             
@@ -106,8 +105,12 @@ class ProfileValidator:
             for error in self._validator.iter_errors(profile):
                 if error != e:  # Don't duplicate the first error
                     errors.append(self._format_error(error))
-            
-            return False, errors
+        
+        # Add custom validation for pressure limits (15 bar max)
+        pressure_errors = self._validate_pressure_limits(profile)
+        errors.extend(pressure_errors)
+        
+        return len(errors) == 0, errors
 
     def validate_and_raise(self, profile: Dict[str, Any]) -> None:
         """Validate a profile and raise ProfileValidationError if invalid.
@@ -123,6 +126,52 @@ class ProfileValidator:
             message = f"Profile validation failed with {len(errors)} error(s)"
             # The ProfileValidationError will automatically include all errors in its message
             raise ProfileValidationError(message, errors)
+
+    def _validate_pressure_limits(self, profile: Dict[str, Any]) -> List[str]:
+        """Validate pressure limits (15 bar max) in profile.
+        
+        Args:
+            profile: Profile dictionary to validate
+            
+        Returns:
+            List of pressure-related validation errors
+        """
+        errors = []
+        
+        if "stages" not in profile or not isinstance(profile["stages"], list):
+            return errors
+        
+        for i, stage in enumerate(profile["stages"]):
+            if not isinstance(stage, dict):
+                continue
+            
+            stage_name = stage.get("name", f"Stage {i+1}")
+            
+            # Check pressure in dynamics points (only for pressure-type stages)
+            if stage.get("type") == "pressure":
+                dynamics = stage.get("dynamics", {})
+                points = dynamics.get("points", [])
+                for point_idx, point in enumerate(points):
+                    if isinstance(point, list) and len(point) >= 2:
+                        pressure_val = point[1]
+                        if isinstance(pressure_val, (int, float)):
+                            if pressure_val > 15:
+                                errors.append(f"Stage '{stage_name}' dynamics point {point_idx+1} has pressure {pressure_val} bar which exceeds the 15 bar limit. Please reduce pressure to 15 bar or below.")
+                            elif pressure_val < 0:
+                                errors.append(f"Stage '{stage_name}' dynamics point {point_idx+1} has negative pressure {pressure_val} bar. Pressure must be non-negative.")
+            
+            # Check pressure in exit triggers
+            exit_triggers = stage.get("exit_triggers", [])
+            for trigger_idx, trigger in enumerate(exit_triggers):
+                if isinstance(trigger, dict) and trigger.get("type") == "pressure":
+                    pressure_val = trigger.get("value")
+                    if isinstance(pressure_val, (int, float)):
+                        if pressure_val > 15:
+                            errors.append(f"Stage '{stage_name}' exit trigger {trigger_idx+1} has pressure {pressure_val} bar which exceeds the 15 bar limit. Please reduce pressure to 15 bar or below.")
+                        elif pressure_val < 0:
+                            errors.append(f"Stage '{stage_name}' exit trigger {trigger_idx+1} has negative pressure {pressure_val} bar. Pressure must be non-negative.")
+        
+        return errors
 
     def _format_error(self, error: ValidationError) -> str:
         """Format a validation error into a readable message.

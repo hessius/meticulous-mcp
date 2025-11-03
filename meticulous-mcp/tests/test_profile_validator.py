@@ -652,3 +652,210 @@ def test_lint_no_warnings_when_fields_present(validator):
     assert len(limits_warnings) == 0
     assert len(relative_warnings) == 0
 
+
+def test_validate_pressure_exceeds_15_bar_in_dynamics(validator):
+    """Test validation fails when pressure exceeds 15 bar in dynamics points."""
+    profile = {
+        "name": "Test Profile",
+        "id": "test-id",
+        "temperature": 90.0,
+        "stages": [
+            {
+                "name": "High Pressure Stage",
+                "key": "stage_1",
+                "type": "pressure",  # Pressure-type stage
+                "dynamics": {
+                    "points": [[0, 9], [30, 20]],  # 20 bar exceeds limit
+                    "over": "time",
+                },
+                "exit_triggers": [{"type": "time", "value": 30, "relative": False}],
+                "limits": [],
+            }
+        ],
+    }
+    is_valid, errors = validator.validate(profile)
+    assert not is_valid
+    assert any("pressure" in e.lower() and "20" in e and "15 bar limit" in e.lower() for e in errors)
+
+
+def test_validate_negative_pressure_in_dynamics(validator):
+    """Test validation fails when pressure is negative in dynamics points."""
+    profile = {
+        "name": "Test Profile",
+        "id": "test-id",
+        "temperature": 90.0,
+        "stages": [
+            {
+                "name": "Negative Pressure Stage",
+                "key": "stage_1",
+                "type": "pressure",
+                "dynamics": {
+                    "points": [[0, 9], [30, -5]],  # Negative pressure
+                    "over": "time",
+                },
+                "exit_triggers": [{"type": "time", "value": 30, "relative": False}],
+                "limits": [],
+            }
+        ],
+    }
+    is_valid, errors = validator.validate(profile)
+    assert not is_valid
+    assert any("negative pressure" in e.lower() and "-5" in e for e in errors)
+
+
+def test_validate_pressure_exceeds_15_bar_in_exit_trigger(validator):
+    """Test validation fails when pressure exceeds 15 bar in exit triggers."""
+    profile = {
+        "name": "Test Profile",
+        "id": "test-id",
+        "temperature": 90.0,
+        "stages": [
+            {
+                "name": "Stage 1",
+                "key": "stage_1",
+                "type": "flow",
+                "dynamics": {"points": [[0, 4], [30, 4]], "over": "time"},
+                "exit_triggers": [
+                    {"type": "pressure", "value": 18, "relative": False, "comparison": ">="}  # 18 bar exceeds limit
+                ],
+                "limits": [],
+            }
+        ],
+    }
+    is_valid, errors = validator.validate(profile)
+    assert not is_valid
+    assert any("exit trigger" in e.lower() and "pressure" in e.lower() and "18" in e and "15 bar limit" in e.lower() for e in errors)
+
+
+def test_validate_negative_pressure_in_exit_trigger(validator):
+    """Test validation fails when pressure is negative in exit triggers."""
+    profile = {
+        "name": "Test Profile",
+        "id": "test-id",
+        "temperature": 90.0,
+        "stages": [
+            {
+                "name": "Stage 1",
+                "key": "stage_1",
+                "type": "flow",
+                "dynamics": {"points": [[0, 4], [30, 4]], "over": "time"},
+                "exit_triggers": [
+                    {"type": "pressure", "value": -2, "relative": False, "comparison": ">="}  # Negative pressure
+                ],
+                "limits": [],
+            }
+        ],
+    }
+    is_valid, errors = validator.validate(profile)
+    assert not is_valid
+    assert any("exit trigger" in e.lower() and "negative pressure" in e.lower() and "-2" in e for e in errors)
+
+
+def test_validate_pressure_validation_only_for_pressure_stages(validator):
+    """Test that pressure validation in dynamics only applies to pressure-type stages."""
+    profile = {
+        "name": "Test Profile",
+        "id": "test-id",
+        "temperature": 90.0,
+        "stages": [
+            {
+                "name": "Flow Stage",
+                "key": "stage_1",
+                "type": "flow",  # Flow-type stage, not pressure
+                "dynamics": {
+                    "points": [[0, 20], [30, 25]],  # These are flow values, not pressure
+                    "over": "time",
+                },
+                "exit_triggers": [{"type": "time", "value": 30, "relative": False}],
+                "limits": [],
+            }
+        ],
+    }
+    is_valid, errors = validator.validate(profile)
+    # Should be valid - no pressure errors since this is a flow stage
+    pressure_errors = [e for e in errors if "15 bar limit" in e.lower()]
+    assert len(pressure_errors) == 0
+
+
+def test_validate_pressure_limits_not_validated(validator):
+    """Test that pressure in limits is NOT validated (can be infinity)."""
+    profile = {
+        "name": "Test Profile",
+        "id": "test-id",
+        "temperature": 90.0,
+        "stages": [
+            {
+                "name": "Stage 1",
+                "key": "stage_1",
+                "type": "flow",
+                "dynamics": {"points": [[0, 4], [30, 4]], "over": "time"},
+                "exit_triggers": [{"type": "time", "value": 30, "relative": False}],
+                "limits": [
+                    {"type": "pressure", "value": 100}  # Very high pressure limit - this is OK
+                ],
+            }
+        ],
+    }
+    is_valid, errors = validator.validate(profile)
+    # Should NOT have errors about pressure in limits
+    limits_pressure_errors = [e for e in errors if "limit" in e.lower() and "pressure" in e.lower() and "15 bar" in e.lower()]
+    assert len(limits_pressure_errors) == 0
+
+
+def test_validate_valid_pressure_values(validator):
+    """Test that valid pressure values (within 0-15 bar) pass validation."""
+    profile = {
+        "name": "Test Profile",
+        "id": "test-id",
+        "temperature": 90.0,
+        "stages": [
+            {
+                "name": "Valid Pressure Stage",
+                "key": "stage_1",
+                "type": "pressure",
+                "dynamics": {
+                    "points": [[0, 2], [10, 9], [20, 6]],  # All within 0-15 bar
+                    "over": "time",
+                },
+                "exit_triggers": [
+                    {"type": "pressure", "value": 8, "relative": False, "comparison": ">="},  # Within limit
+                    {"type": "time", "value": 30, "relative": False},
+                ],
+                "limits": [],
+            }
+        ],
+    }
+    is_valid, errors = validator.validate(profile)
+    # Should NOT have any pressure limit errors
+    pressure_errors = [e for e in errors if "15 bar limit" in e.lower() or "negative pressure" in e.lower()]
+    assert len(pressure_errors) == 0
+
+
+def test_validate_multiple_pressure_violations(validator):
+    """Test validation detects multiple pressure violations in different locations."""
+    profile = {
+        "name": "Test Profile",
+        "id": "test-id",
+        "temperature": 90.0,
+        "stages": [
+            {
+                "name": "Stage 1",
+                "key": "stage_1",
+                "type": "pressure",
+                "dynamics": {
+                    "points": [[0, 20], [30, -3]],  # Both exceed limit and negative
+                    "over": "time",
+                },
+                "exit_triggers": [
+                    {"type": "pressure", "value": 18, "relative": False, "comparison": ">="}  # Also exceeds
+                ],
+                "limits": [],
+            }
+        ],
+    }
+    is_valid, errors = validator.validate(profile)
+    assert not is_valid
+    # Should have at least 3 errors (2 from dynamics, 1 from exit trigger)
+    pressure_errors = [e for e in errors if ("15 bar limit" in e.lower() or "negative pressure" in e.lower())]
+    assert len(pressure_errors) >= 3
+
