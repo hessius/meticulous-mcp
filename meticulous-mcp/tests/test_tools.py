@@ -176,10 +176,14 @@ def test_validate_profile_invalid(initialized_tools):
     _, mock_validator = initialized_tools
     mock_validator.validate.return_value = (False, ["Error 1", "Error 2"])
     
+    # Profile without id/author_id is treated as new profile and gets Pydantic validation
     profile_json = '{"name": "Test"}'
     result = validate_profile_tool(profile_json)
     assert result["valid"] is False
-    assert len(result["errors"]) == 2
+    # Should have Pydantic errors (author, stages required) + schema errors
+    assert len(result["errors"]) == 4  # 2 Pydantic + 2 Schema
+    assert any("author" in err for err in result["errors"])
+    assert any("stages" in err for err in result["errors"])
 
 
 def test_run_profile_success(initialized_tools):
@@ -493,10 +497,12 @@ def test_validate_profile_with_errors_and_warnings(initialized_tools):
     mock_validator.validate.return_value = (False, ["Error 1"])
     mock_validator.lint.return_value = ["Warning 1"]
     
+    # Profile without id/author_id is treated as new profile and gets Pydantic validation
     profile_json = '{"name": "Test"}'
     result = validate_profile_tool(profile_json)
     assert result["valid"] is False
-    assert len(result["errors"]) == 1
+    # Should have Pydantic errors (author, stages required) + schema error
+    assert len(result["errors"]) == 3  # 2 Pydantic + 1 Schema
     assert len(result["warnings"]) == 1
 
 

@@ -686,14 +686,44 @@ def validate_profile_tool(profile_json: str) -> Dict[str, Any]:
     except json.JSONDecodeError as e:
         raise Exception(f"Invalid JSON: {e}")
     
-    is_valid, errors = _validator.validate(profile_dict)
+    # Try to validate as ProfileCreateInput (for new profiles being created)
+    # This catches issues with the input format, but only if it looks like
+    # a new profile (has author, doesn't have id/author_id from machine)
+    pydantic_errors = []
+    has_id = "id" in profile_dict
+    has_author_id = "author_id" in profile_dict
+    is_existing_profile = has_id or has_author_id
+    
+    if not is_existing_profile:
+        # This looks like a new profile, so validate it as ProfileCreateInput
+        try:
+            ProfileCreateInput(**profile_dict)
+        except PydanticValidationError as e:
+            for error in e.errors():
+                field = " -> ".join(str(x) for x in error.get("loc", []))
+                msg = error.get("msg", "Validation error")
+                pydantic_errors.append(f"Input validation: {field}: {msg}")
+    
+    # Validate against JSON schema (for full profile validation)
+    is_valid, schema_errors = _validator.validate(profile_dict)
     warnings = _validator.lint(profile_dict)
     
+    # Combine errors
+    all_errors = []
+    if pydantic_errors:
+        all_errors.extend(pydantic_errors)
+    if schema_errors:
+        # Prefix schema errors only if we also have pydantic errors
+        if pydantic_errors:
+            all_errors.extend([f"Schema validation: {err}" for err in schema_errors])
+        else:
+            all_errors.extend(schema_errors)
+    
     return {
-        "valid": is_valid,
-        "errors": errors,
+        "valid": len(all_errors) == 0,
+        "errors": all_errors,
         "warnings": warnings,
-        "message": "Profile is valid" if is_valid else f"Profile has {len(errors)} validation error(s)",
+        "message": "Profile is valid" if len(all_errors) == 0 else f"Profile has {len(all_errors)} validation error(s)",
     }
 
 

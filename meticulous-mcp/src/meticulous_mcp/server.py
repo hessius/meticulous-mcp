@@ -71,10 +71,61 @@ def _ensure_initialized() -> None:
 
 # Register tools
 @mcp.tool()
-def create_profile(input_data: ProfileCreateInput) -> Dict[str, Any]:
-    """Create a new espresso profile with structured parameters."""
+def create_profile(input_data: str) -> Dict[str, Any]:
+    """Create a new espresso profile with structured parameters.
+    
+    Args:
+        input_data: JSON string containing profile data with the following structure:
+            {
+              "name": "Profile Name",
+              "author": "Author Name",
+              "temperature": 90.0,
+              "final_weight": 40.0,
+              "stages": [
+                {
+                  "name": "Stage Name",
+                  "key": "stage_key",
+                  "type": "flow" | "pressure" | "power",
+                  "dynamics_points": [[x, y], ...],
+                  "dynamics_over": "time" | "weight" | "piston_position",
+                  "dynamics_interpolation": "linear" | "curve" | "none",
+                  "exit_triggers": [
+                    {"type": "weight", "value": 30, "comparison": ">="},
+                    ...
+                  ],
+                  "limits": [{"type": "flow", "value": 8}, ...]
+                },
+                ...
+              ],
+              "variables": [...],  // optional
+              "accent_color": "#FF5733"  // optional
+            }
+    """
     _ensure_initialized()
-    return create_profile_tool(input_data)
+    import json
+    from pydantic import ValidationError as PydanticValidationError
+    
+    # Parse JSON string to dict
+    try:
+        input_dict = json.loads(input_data)
+    except json.JSONDecodeError as e:
+        raise Exception(f"Invalid JSON in input_data: {e}")
+    
+    # Convert to Pydantic model for validation
+    try:
+        profile_input = ProfileCreateInput(**input_dict)
+    except PydanticValidationError as e:
+        error_details = []
+        for error in e.errors():
+            field = " -> ".join(str(x) for x in error.get("loc", []))
+            msg = error.get("msg", "Validation error")
+            error_details.append(f"{field}: {msg}")
+        raise Exception(
+            "Invalid profile input data:\n" + 
+            "\n".join(f"  - {detail}" for detail in error_details)
+        )
+    
+    return create_profile_tool(profile_input)
 
 
 @mcp.tool()
@@ -92,32 +143,46 @@ def get_profile(profile_id: str) -> Dict[str, Any]:
 
 
 @mcp.tool()
-def update_profile(
-    profile_id: str,
-    name: Optional[str] = None,
-    temperature: Optional[Union[float, int, str]] = None,
-    final_weight: Optional[Union[float, int, str]] = None,
-    stages_json: Optional[str] = None,
-) -> Dict[str, Any]:
-    """Update an existing profile."""
+def update_profile(update_data: str) -> Dict[str, Any]:
+    """Update an existing profile.
+    
+    Args:
+        update_data: JSON string containing update data with the following structure:
+            {
+              "profile_id": "profile-uuid",
+              "name": "New Name",  // optional
+              "temperature": 92.0,  // optional
+              "final_weight": 40.0,  // optional
+              "stages_json": "[...]"  // optional - JSON string of stages array
+            }
+            
+    At minimum, profile_id must be provided. All other fields are optional.
+    """
     _ensure_initialized()
-    # Convert temperature and final_weight to float if they're strings
-    temp_float = None
-    if temperature is not None:
-        temp_float = float(temperature) if isinstance(temperature, (str, int)) else temperature
+    import json
+    from pydantic import ValidationError as PydanticValidationError
     
-    weight_float = None
-    if final_weight is not None:
-        weight_float = float(final_weight) if isinstance(final_weight, (str, int)) else final_weight
+    # Parse JSON string to dict
+    try:
+        update_dict = json.loads(update_data)
+    except json.JSONDecodeError as e:
+        raise Exception(f"Invalid JSON in update_data: {e}")
     
-    input_data = ProfileUpdateInput(
-        profile_id=profile_id,
-        name=name,
-        temperature=temp_float,
-        final_weight=weight_float,
-        stages_json=stages_json,
-    )
-    return update_profile_tool(input_data)
+    # Convert to Pydantic model for validation
+    try:
+        profile_update = ProfileUpdateInput(**update_dict)
+    except PydanticValidationError as e:
+        error_details = []
+        for error in e.errors():
+            field = " -> ".join(str(x) for x in error.get("loc", []))
+            msg = error.get("msg", "Validation error")
+            error_details.append(f"{field}: {msg}")
+        raise Exception(
+            "Invalid update data:\n" + 
+            "\n".join(f"  - {detail}" for detail in error_details)
+        )
+    
+    return update_profile_tool(profile_update)
 
 
 @mcp.tool()
@@ -451,7 +516,7 @@ Based on analysis of successful profile patterns, here are key principles for cr
 
 **❌ Single Exit Trigger**:
 - Only weight OR only time = risky
-- Always include multiple triggers for safety
+- Include multiple triggers for safety
 
 **❌ Exact Match Triggers**:
 - Waiting for exact weight (e.g., 30.0g) = unreliable
@@ -476,7 +541,104 @@ Based on analysis of successful profile patterns, here are key principles for cr
 
 **❌ Ignoring Grinder Characteristics**:
 - One profile for all grinders = suboptimal
-- Consider grinder particle distribution"""
+- Consider grinder particle distribution
+
+## 6. Creating and Using Variables in Meticulous Espresso Profiles
+
+Variables allow users to customize profile parameters at runtime, giving them flexibility to adjust recipes without modifying the profile structure. This is particularly useful for creating adaptable profiles that work across different beans or user preferences.
+
+### Variable Definition
+
+When defining a variable in the top-level `variables` array, the `type` field must be a valid physical unit that the stage will control. Valid variable types include:
+
+- **flow**: Flow rate control (ml/s)
+- **pressure**: Pressure control (bar)
+- **power**: Power control (percentage)
+- **weight**: Weight-based values (grams)
+- **time**: Time-based values (seconds)
+- **piston_position**: Piston position control
+
+### Variable Structure
+
+Each variable must have the following fields:
+- `name`: Human-readable name displayed to the user
+- `key`: Unique identifier used for references (e.g., "target_flow", "max_pressure")
+- `type`: Physical unit type (must match a valid control type)
+- `value`: Default numeric value for the variable
+
+### Variable References in Stages
+
+To reference a variable within a stage's `dynamics_points`, exit triggers, or limits, the variable's `key` must be provided as a string and prefixed with a dollar sign (`$`).
+
+**Example variable references**:
+- `"$target_flow"` - references variable with key "target_flow"
+- `"$max_pressure"` - references variable with key "max_pressure"
+- `"$final_weight"` - references variable with key "final_weight"
+
+### Complete Variable Example
+
+```json
+{
+  "variables": [
+    {
+      "name": "Target Flow Rate",
+      "key": "target_flow",
+      "type": "flow",
+      "value": 2.5
+    },
+    {
+      "name": "Maximum Pressure",
+      "key": "max_pressure",
+      "type": "pressure",
+      "value": 9.0
+    }
+  ],
+  "stages": [
+    {
+      "name": "Infusion",
+      "key": "infusion",
+      "type": "flow",
+      "dynamics": {
+        "points": [
+          [0, "$target_flow"],
+          [30, "$target_flow"]
+        ],
+        "over": "time",
+        "interpolation": "linear"
+      },
+      "exit_triggers": [
+        {"type": "weight", "value": 36, "comparison": ">="}
+      ],
+      "limits": [
+        {"type": "pressure", "value": "$max_pressure"}
+      ]
+    }
+  ]
+}
+```
+
+In this example:
+- The `target_flow` variable (default 2.5 ml/s) controls the flow rate in the dynamics points
+- The `max_pressure` variable (default 9.0 bar) sets a pressure limit
+- Users can adjust these values at runtime without editing the profile structure
+
+### Use Cases for Variables
+
+**Adaptable Profiles**:
+- Create a single profile that works for different bean types by exposing temperature, flow, or pressure as variables
+- Allow users to dial in their preferred extraction without profile duplication
+
+**Grinder Compatibility**:
+- Expose flow rate limits as variables to accommodate different grinder particle distributions
+- Users with different grinders can adjust flow for their setup
+
+**Experimentation**:
+- Create experimental profiles with multiple adjustable parameters
+- Users can quickly test different combinations without creating new profiles
+
+**User Preference**:
+- Allow users to customize strength (by varying flow/pressure)
+- Provide control over extraction speed and intensity
 
 
 @mcp.resource("espresso://schema")

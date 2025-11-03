@@ -1,6 +1,6 @@
 # Meticulous Espresso Profile MCP Server
 
-An MCP (Model Context Protocol) server for managing espresso profiles on your Meticulous espresso machine. Use AI assistants like Claude Desktop or Cursor to create, validate, and manage espresso profiles without manual JSON editing.
+An MCP (Model Context Protocol) server for managing espresso profiles on your Meticulous espresso machine. Use AI assistants like Claude Desktop or Cursor to create, validate, and manage espresso profiles without diving deep in application or manual JSON editing.
 
 ## Quick Start
 
@@ -35,14 +35,14 @@ pip install -r requirements.txt
 
 Meticulous MCP allows you to create and install Meticulous profiles on your machine via AI agents.
 
-You can use natural language to describe the kind of profile you want, stages required, flow rate, temperature, etc., and an agent will build a profile for you -- no JSON or fiddling in the app required. The server helps agents understand espresso profiling and gives them tools to interact with your Meticulous via the API. The server is built off of Meticulous' Python API, the Meticulous espresso profile schema, and wisdom from Lance Hedrick, Aramse, and Home-Barista.com.
+You can use natural language to describe the kind of profile you want, stages required, flow rate, temperature, etc., and an agent will build a profile for you -- no JSON or fiddling in the app required. The server helps agents understand espresso profiling and gives them tools to interact with your Meticulous via the API. The server is built off of Meticulous' Python API, the Meticulous espresso profile schema, and wisdom from Lance Hedrick, Aramse, and Home-Barista.com. The knowledge base for Agents needs work, and will evolve over time. It's not perfect and you may not like its suggestions, but you can be specific with your guidance to get around that.
 
 You must have access to an agent that can use desktop/local MCP via STDIO. Popular clients for this include Claude Desktop, Goose, LibreChat, Cherry Studio, and LM Studio. It's only been tested with Goose, Cursor, and Claude Desktop. ChatGPT can not currently call MCP tools on your desktop.
 
 ## Disclaimer
-**⚠️ Important Disclaimer:** Please use Meticulous MCP at your own risk. There's no warranty of any kind, and if your AI builds a whacky profile that bricks your Meticulous, the creators are not responsible. The MCP server is only a communication layer that allows AI to talk to your Meticulous. While there is profile validation, and the Meticulous fails to load certain types of weird profiles, we can't guarantee everything. **Please check your profiles in the app before running them.** In particular, the less smart the model, the more mistakes it might make, including getting the JSON submission right. The server gives the model feedback on its submission mistakes so that it can try again, but some models aren't good enough to fix themselves.
+**⚠️ Important Disclaimer:** Please use Meticulous MCP at your own risk. There's no warranty of any kind, and if your AI builds a whacky profile that bricks your Meticulous, the creators are not responsible. The MCP server is only a communication layer that allows AI to talk to your Meticulous. While there is profile validation, and the Meticulous fails to load certain types of weird profiles, we can't guarantee everything. **Please check your profiles in the app before running them.** In particular, the less smart the model, the more mistakes it might make, including getting the JSON submission right. The server gives the model feedback on its submission mistakes so that it can try again, but some models aren't good enough to fix themselves. If you model can't get the submission right over many tries, try a smarter model.
 
-Lastly, don't bother the Meticulous development team about Meticulous MCP. We did not submit it to Meticulous intentionally, because it does not meet Meticulous' standards for review.
+Lastly, **Meticulous MCP is not a product of Meticulous Home**. Please don't bother the Meticulous development team about Meticulous MCP. We did not submit it to Meticulous intentionally, because it does not meet Meticulous' standards for review. The server is a fun tool to build profiles, not part of the product.
 
 Have fun profiling!
 
@@ -118,7 +118,7 @@ Add this configuration:
 
 Edit `~/.cursor/mcp.json` (Mac) or `%APPDATA%\Cursor\mcp.json` (Windows) and add the same configuration as above.
 
-### Step 4: Test Your Setup
+### Step 4: Test Your Setup (Optional)
 
 **Mac:**
 ```bash
@@ -164,7 +164,7 @@ Once connected, you can ask your AI assistant to:
 
 - **Create espresso profiles** - "Create a new espresso profile with..."
 - **List profiles** - "Show me all my espresso profiles"
-- **Get profile details** - "Show me the details of profile X"
+- **Get profile details** - "Show me the details of profile X or explain this profile to me.."
 - **Update profiles** - "Modify profile X to..."
 - **Duplicate profiles** - "Copy profile X and name it Y"
 - **Validate profiles** - "Check if this profile JSON is valid"
@@ -178,7 +178,7 @@ Here's a realistic example of how an AI agent would interact with your Meticulou
 
 **Agent:** "I'll create a turbo shot profile optimized for light roast coffee. This profile will use higher temperature and a 1:3 ratio for brightness and clarity."
 
-**Agent calls:** `create_profile` with the following parameters:
+**Agent calls:** `create_profile` with the following data:
 
 ```json
 {
@@ -468,6 +468,16 @@ If you prefer to use the Python module directly instead of the run script:
 3. Test manually: `python3.11 /path/to/run_server.py` (should start without errors)
 4. Check that all dependencies are installed: `pip install -r requirements.txt`
 
+### Profile Creation Errors
+
+**Problem:** Agent gets errors when trying to create profiles
+
+**Solutions:**
+1. Make sure your MCP server is up to date (restart your MCP client after updating)
+2. Check that the agent has access to the espresso profiling knowledge resources
+3. Try asking the agent to rephrase your request more simply
+4. If errors persist, check the error message and try creating a simpler profile first
+
 ### Machine Not Found
 
 **Problem:** Cannot connect to Meticulous machine
@@ -483,6 +493,17 @@ If you prefer to use the Python module directly instead of the run script:
 ### create_profile
 Create a new espresso profile with structured parameters.
 
+**Required fields:**
+- `name`: Profile name
+- `author`: Author name  
+- `temperature`: Brew temperature in Celsius (typically 82-96°C)
+- `final_weight`: Target output weight in grams
+- `stages`: Array of stage objects (see example conversation above)
+
+**Optional fields:**
+- `variables`: Custom variables for dynamic values
+- `accent_color`: Hex color code (e.g., "#FF5733")
+
 ### list_profiles
 List all available profiles.
 
@@ -491,6 +512,24 @@ Get full profile details by ID.
 
 ### update_profile
 Update an existing profile.
+
+**Required fields:**
+- `profile_id`: ID of the profile to update
+
+**Optional fields:**
+- `name`: New profile name
+- `temperature`: New temperature in Celsius
+- `final_weight`: New target weight in grams
+- `stages_json`: JSON string containing updated stages array
+
+**Example:**
+```json
+{
+  "profile_id": "profile-uuid-here",
+  "name": "Updated Name",
+  "temperature": 92.0
+}
+```
 
 ### duplicate_profile
 Duplicate a profile and optionally modify it.
