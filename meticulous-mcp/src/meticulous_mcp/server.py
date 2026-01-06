@@ -38,6 +38,8 @@ from .tools import (
     delete_profile_tool,
     validate_profile_tool,
     run_profile_tool,
+    list_shot_history_tool,
+    get_shot_data_tool,
     ProfileCreateInput,
     ProfileUpdateInput,
 )
@@ -59,11 +61,31 @@ def _ensure_initialized() -> None:
         _api_client = MeticulousAPIClient(base_url=base_url)
         
         # Find schema file
-        current_dir = Path(__file__).parent.parent.parent
-        schema_path = current_dir / "espresso-profile-schema" / "schema.json"
-        if not schema_path.exists():
-            # Try alternative location
-            schema_path = Path(__file__).parent.parent.parent.parent / "espresso-profile-schema" / "schema.json"
+        possible_paths = []
+        
+        # 1. Check env var
+        env_schema_path = os.getenv("METICULOUS_SCHEMA_PATH")
+        if env_schema_path:
+            possible_paths.append(Path(env_schema_path))
+
+        # 2. Check standard Docker mount path
+        possible_paths.append(Path("/app/espresso-profile-schema/schema.json"))
+        
+        # 3. Check relative paths (development/local)
+        server_path = Path(__file__).resolve()
+        current_dir = server_path.parent.parent.parent
+        possible_paths.append(current_dir / "espresso-profile-schema" / "schema.json")
+        possible_paths.append(server_path.parent.parent.parent.parent / "espresso-profile-schema" / "schema.json")
+        
+        schema_path = None
+        for p in possible_paths:
+            if p.exists():
+                schema_path = p
+                break
+        
+        # If still not found, fallback to the relative path so the validator can report the error with context
+        if schema_path is None:
+            schema_path = possible_paths[-1]
         
         _validator = ProfileValidator(schema_path=str(schema_path))
         initialize_tools(_api_client, _validator)
@@ -223,6 +245,28 @@ def run_profile(profile_id: str) -> Dict[str, Any]:
     """Load and execute a profile (without saving)."""
     _ensure_initialized()
     return run_profile_tool(profile_id)
+
+
+@mcp.tool()
+def list_shot_history() -> Dict[str, Any]:
+    """List available shot history (dates)."""
+    _ensure_initialized()
+    return list_shot_history_tool()
+
+
+@mcp.tool()
+def get_shot_data(date: Optional[str] = None, filename: Optional[str] = None) -> Dict[str, Any]:
+    """Get parsed shot data (telemetry).
+    
+    If date and filename are provided, fetches that specific shot.
+    If neither are provided, fetches the absolute latest shot available.
+    
+    Args:
+        date: Date string (YYYY-MM-DD). Optional.
+        filename: Shot filename (e.g. HH:MM:SS.shot.json). Optional.
+    """
+    _ensure_initialized()
+    return get_shot_data_tool(date, filename)
 
 
 # Register resources

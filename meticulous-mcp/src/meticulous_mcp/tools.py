@@ -831,3 +831,42 @@ def run_profile_tool(profile_id: str) -> Dict[str, Any]:
         "status": action_result.status,
     }
 
+def list_shot_history_tool() -> Dict[str, Any]:
+    """List available shot history (dates).
+    
+    Returns:
+        Dictionary containing list of dates.
+    """
+    _ensure_initialized()
+    result = _api_client.get_history_dates()
+    if isinstance(result, APIError):
+         error_msg = result.error or result.status or "Unknown error"
+         raise Exception(f"Failed to list history: {error_msg}")
+         
+    return {"dates": [d.name for d in result]}
+
+def get_shot_data_tool(date_str: Optional[str] = None, filename: Optional[str] = None) -> Dict[str, Any]:
+    """Get parsed shot data. 
+    
+    If date_str and filename are provided, fetches that specific shot.
+    If neither are provided, fetches the absolute latest shot.
+    
+    Args:
+        date_str: Date (YYYY-MM-DD). Optional.
+        filename: Shot filename (e.g. HH:MM:SS.shot.json.zst). Optional.
+        
+    Returns:
+        Dictionary containing the parsed shot data.
+    """
+    _ensure_initialized()
+    
+    if date_str and filename:
+        result = _api_client.get_shot_log(date_str, filename)
+    else:
+        result = _api_client.get_last_shot_log()
+        
+    if isinstance(result, APIError):
+         error_msg = result.error or result.status or "Unknown error"
+         raise Exception(f"Failed to get shot data: {error_msg}")
+         
+    return result
