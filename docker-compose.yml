@@ -12,10 +12,10 @@ services:
       # (e.g., http://192.168.1.5, http://10.0.0.15, http://172.16.0.20, etc.)
       - METICULOUS_API_URL=http://192.168.4.8
     healthcheck:
-      test: ["CMD", "python3", "-c", "exec(\"import urllib.request, sys\\ntry: urllib.request.urlopen('http://localhost:8080/')\\nexcept Exception as e: sys.exit(0 if 'HTTP Error' in str(e) else 1)\")"]
-      interval: 10s
+      test: ["CMD", "python3", "-c", "import socket, sys; s = socket.socket(socket.AF_INET, socket.SOCK_STREAM); s.settimeout(5); result = s.connect_ex(('localhost', 8080)); s.close(); sys.exit(result)"]
+      interval: 30s
       timeout: 5s
-      retries: 5
+      retries: 3
       start_period: 5s
     volumes:
       # Mount source code for easier development/debugging if needed
