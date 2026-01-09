@@ -2,15 +2,14 @@
 
 **Objective:** Package the Meticulous MCP server and its dependencies as a portable Docker container that allows any user to run it against their machine.
 
-## 1. Monorepo Structure
-Unlike the upstream repository which relies on external dependencies or manual setup, this repository acts as a **self-contained Monorepo**. It includes:
+## 1. Automated Build Process
+Unlike the upstream repository which may require manual setup of multiple components, this repository is designed to be **self-bootstrapping**. The Docker build process automatically handles:
 
-*   `meticulous-mcp/`: The core MCP server logic.
-*   `pyMeticulous/`: The Python SDK for the machine.
-*   `espresso-profile-schema/`: The JSON schema definitions.
-*   `python-sdk/`: The core MCP protocol SDK.
+*   **Core Logic:** Installs the local `meticulous-mcp` package.
+*   **SDKs:** Automatically fetches `pyMeticulous` and the FastMCP SDK (`mcp`) via pip.
+*   **Schema:** Clones the latest `espresso-profile-schema` from GitHub directly into the container.
 
-This ensures that `docker compose build` works immediately for any user without needing to clone multiple repositories or manage git submodules.
+This ensures that `docker compose up --build` works immediately for any user without needing to manually clone additional repositories or manage git submodules.
 
 ## 2. Container Strategy
 We treat the application as a portable appliance.
@@ -31,5 +30,5 @@ To support running in Docker, we modified the original source code to be "Enviro
 *   **Problem:** The server originally looked for relative paths (e.g., `../espresso-profile-schema`), which breaks in different deployment structures.
 *   **Fix:** We implemented a **Priority Search Path** strategy:
     1.  `METICULOUS_SCHEMA_PATH` (Environment Variable - highest priority)
-    2.  `/app/espresso-profile-schema/schema.json` (Standard Docker path)
-    3.  `../../espresso-profile-schema` (Local Dev fallback)
+    2.  `/app/espresso-profile-schema/schema.json` (Standard Docker path - populated via `git clone`)
+    3.  Relative paths (Fallback for non-Docker development only)
