@@ -38,6 +38,9 @@ from .tools import (
     delete_profile_tool,
     validate_profile_tool,
     run_profile_tool,
+    get_machine_status_tool,
+    get_settings_tool,
+    update_setting_tool,
     list_shot_history_tool,
     get_shot_url_tool,
     ProfileCreateInput,
@@ -245,6 +248,32 @@ def run_profile(profile_id: str) -> Dict[str, Any]:
     """Load and execute a profile (without saving)."""
     _ensure_initialized()
     return run_profile_tool(profile_id)
+
+
+@mcp.tool()
+def get_machine_status() -> Dict[str, Any]:
+    """Get the current machine status (telemetry)."""
+    _ensure_initialized()
+    return get_machine_status_tool()
+
+
+@mcp.tool()
+def get_settings() -> Dict[str, Any]:
+    """Get machine settings (e.g. auto_preheat, sounds)."""
+    _ensure_initialized()
+    return get_settings_tool()
+
+
+@mcp.tool()
+def update_setting(key: str, value: Union[str, int, float, bool]) -> Dict[str, Any]:
+    """Update a machine setting.
+    
+    Args:
+        key: The setting key to update (e.g. 'auto_preheat', 'enable_sounds').
+        value: The new value.
+    """
+    _ensure_initialized()
+    return update_setting_tool(key, value)
 
 
 @mcp.tool()

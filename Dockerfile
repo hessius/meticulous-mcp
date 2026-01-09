@@ -9,13 +9,14 @@ COPY . /app
 RUN apt-get update && apt-get install -y git && rm -rf /var/lib/apt/lists/*
 
 # Install dependencies
-# Install the local packages so metadata is available (fixes 'No package metadata was found for mcp')
-RUN pip install --no-cache-dir ./python-sdk
-RUN pip install --no-cache-dir ./pyMeticulous
+RUN pip install --no-cache-dir -r meticulous-mcp/requirements.txt
 RUN pip install --no-cache-dir ./meticulous-mcp
 
 # Install uvicorn separately as it is used to run the server
 RUN pip install uvicorn
+
+# Clone the profile schema repository (includes schema.json and rfc.md)
+RUN git clone https://github.com/MeticulousHome/espresso-profile-schema.git /app/espresso-profile-schema
 
 # Expose port 8080
 EXPOSE 8080

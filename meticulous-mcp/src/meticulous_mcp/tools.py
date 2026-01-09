@@ -871,3 +871,60 @@ def get_shot_url_tool(date: str, filename: str) -> Dict[str, str]:
     
     url = _api_client.get_shot_url(date, filename)
     return {"url": url}
+
+
+def get_machine_status_tool() -> Dict[str, Any]:
+    """Get the current status of the Meticulous machine.
+    
+    Returns:
+        Dictionary containing machine status (temperature, water level, state).
+    """
+    _ensure_initialized()
+    
+    result = _api_client.get_machine_status()
+    if isinstance(result, APIError):
+        error_msg = result.error or result.status or "Unknown error"
+        raise Exception(f"Failed to get machine status: {error_msg}")
+    
+    return result
+
+
+def get_settings_tool() -> Dict[str, Any]:
+    """Get the current settings of the Meticulous machine.
+    
+    Returns:
+        Dictionary containing settings (auto-preheat, sounds, etc).
+    """
+    _ensure_initialized()
+    
+    result = _api_client.get_settings()
+    if isinstance(result, APIError):
+        error_msg = result.error or result.status or "Unknown error"
+        raise Exception(f"Failed to get settings: {error_msg}")
+    
+    return result
+
+
+def update_setting_tool(key: str, value: Any) -> Dict[str, Any]:
+    """Update a specific setting on the Meticulous machine.
+    
+    Args:
+        key: The setting key to update (e.g., 'auto_preheat').
+        value: The new value for the setting.
+        
+    Returns:
+        Dictionary confirming the update.
+    """
+    _ensure_initialized()
+    
+    result = _api_client.update_setting(key, value)
+    if isinstance(result, APIError):
+        error_msg = result.error or result.status or "Unknown error"
+        raise Exception(f"Failed to update setting '{key}': {error_msg}")
+    
+    return {
+        "message": f"Setting '{key}' updated successfully",
+        "key": key,
+        "value": value,
+        "settings": result
+    }

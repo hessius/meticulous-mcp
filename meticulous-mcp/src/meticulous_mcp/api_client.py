@@ -127,6 +127,37 @@ class MeticulousAPIClient:
         """
         return self._api.execute_action(action)
 
+    def get_machine_status(self) -> Union[Dict[str, Any], APIError]:
+        """Get the current machine status.
+        
+        Returns:
+            Dictionary with machine status or APIError on failure
+        """
+        # pyMeticulous exposes this via get_current_shot() or similar
+        # Based on API_SPEC, we might want to check the specific method
+        # For now, assuming get_current_shot covers live status
+        return self._api.get_current_shot()
+
+    def get_settings(self) -> Union[Dict[str, Any], APIError]:
+        """Get machine settings.
+        
+        Returns:
+            Dictionary with settings or APIError on failure
+        """
+        return self._api.get_settings()
+
+    def update_setting(self, key: str, value: Any) -> Union[Dict[str, Any], APIError]:
+        """Update a machine setting.
+        
+        Args:
+            key: Setting key
+            value: Setting value
+            
+        Returns:
+            Dictionary with updated settings or APIError on failure
+        """
+        return self._api.update_setting(key, value)
+
     def get_last_profile(self) -> Union[Profile, APIError]:
         """Get the last loaded profile.
         
