@@ -734,6 +734,25 @@ def espresso_schema() -> str:
         return f"Error loading schema: {e}"
 
 
+@mcp.resource("espresso://rfc")
+def espresso_rfc() -> str:
+    """Get the Open Espresso Profile Format RFC document."""
+    _ensure_initialized()
+    try:
+        rfc_path = Path(__file__).parent.parent.parent / "espresso-profile-schema" / "rfc.md"
+        if not rfc_path.exists():
+            rfc_path = Path(__file__).parent.parent.parent.parent / "espresso-profile-schema" / "rfc.md"
+        
+        if not rfc_path.exists():
+            # Check standard Docker path as well
+            rfc_path = Path("/app/espresso-profile-schema/rfc.md")
+
+        with open(rfc_path, "r", encoding="utf-8") as f:
+            return f.read()
+    except Exception as e:
+        return f"Error loading RFC: {e}"
+
+
 @mcp.resource("espresso://profile/{profile_id}")
 def get_profile_resource(profile_id: str) -> str:
     """Get a profile as a resource."""
