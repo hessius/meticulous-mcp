@@ -886,6 +886,16 @@ def get_machine_status_tool() -> Dict[str, Any]:
         error_msg = result.error or result.status or "Unknown error"
         raise Exception(f"Failed to get machine status: {error_msg}")
     
+    if result is None:
+        return {
+            "state": "idle",
+            "message": "Machine is idle (no active shot)"
+        }
+    
+    # If it's a Pydantic model, dump it to dict
+    if hasattr(result, "model_dump"):
+        return result.model_dump()
+        
     return result
 
 
@@ -893,16 +903,34 @@ def get_settings_tool() -> Dict[str, Any]:
     """Get the current settings of the Meticulous machine.
     
     Returns:
-        Dictionary containing settings (auto-preheat, sounds, etc).
+        Dictionary containing settings (auto_preheat, sounds, etc).
     """
     _ensure_initialized()
     
-    result = _api_client.get_settings()
-    if isinstance(result, APIError):
-        error_msg = result.error or result.status or "Unknown error"
-        raise Exception(f"Failed to get settings: {error_msg}")
-    
-    return result
+    try:
+        result = _api_client.get_settings()
+        if isinstance(result, APIError):
+            error_msg = result.error or result.status or "Unknown error"
+            raise Exception(f"Failed to get settings: {error_msg}")
+        
+        # If it's a Pydantic model, dump it to dict
+        if hasattr(result, "model_dump"):
+            return result.model_dump()
+            
+        return result
+    except Exception as e:
+        # Fallback: if validation failed in the client wrapper, try to get raw settings
+        # This handles cases where the machine firmware has new/different fields than the SDK expects
+        try:
+            # We access the internal API session directly to bypass strict validation
+            if hasattr(_api_client, "_api") and hasattr(_api_client._api, "session") and hasattr(_api_client._api, "base_url"):
+                response = _api_client._api.session.get(f"{_api_client._api.base_url}/api/v1/settings")
+                if response.status_code == 200:
+                    return response.json()
+        except Exception:
+            pass # Fallback failed, raise original error
+            
+        raise Exception(f"Failed to get settings: {e}")
 
 
 def update_setting_tool(key: str, value: Any) -> Dict[str, Any]:

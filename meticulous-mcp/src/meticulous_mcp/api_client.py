@@ -144,7 +144,20 @@ class MeticulousAPIClient:
         Returns:
             Dictionary with settings or APIError on failure
         """
-        return self._api.get_settings()
+        try:
+            return self._api.get_settings()
+        except Exception:
+            # Fallback for validation errors or other issues
+            # Direct access to session to get raw JSON
+            try:
+                # We need to make sure the base_url is properly formatted
+                base = self.base_url.rstrip('/')
+                response = self._api.session.get(f"{base}/api/v1/settings")
+                if response.status_code == 200:
+                    return response.json()
+                return APIError(status=str(response.status_code), error=response.text)
+            except Exception as e:
+                return APIError(status="Error", error=str(e))
 
     def update_setting(self, key: str, value: Any) -> Union[Dict[str, Any], APIError]:
         """Update a machine setting.
