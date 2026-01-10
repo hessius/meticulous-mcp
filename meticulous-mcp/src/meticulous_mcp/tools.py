@@ -831,6 +831,29 @@ def run_profile_tool(profile_id: str) -> Dict[str, Any]:
         "status": action_result.status,
     }
 
+
+def load_profile_tool(profile_id: str) -> Dict[str, Any]:
+    """Load a profile onto the machine (without starting it).
+    
+    Args:
+        profile_id: Profile ID to load
+        
+    Returns:
+        Dictionary with success message
+    """
+    _ensure_initialized()
+    
+    # Load profile
+    result = _api_client.load_profile_by_id(profile_id)
+    if isinstance(result, APIError):
+        error_msg = result.error or result.status or "Unknown error"
+        raise Exception(f"Failed to load profile: {error_msg}")
+    
+    return {
+        "profile_id": profile_id,
+        "message": f"Profile '{profile_id}' loaded successfully. Ready to start."
+    }
+
 def list_shot_history_tool(date: Optional[str] = None) -> Dict[str, Any]:
     """List available shot history (dates or files).
     

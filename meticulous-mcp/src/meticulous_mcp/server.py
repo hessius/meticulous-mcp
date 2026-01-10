@@ -38,6 +38,7 @@ from .tools import (
     delete_profile_tool,
     validate_profile_tool,
     run_profile_tool,
+    load_profile_tool,
     get_machine_status_tool,
     get_settings_tool,
     update_setting_tool,
@@ -254,6 +255,17 @@ def run_profile(profile_id: str) -> Dict[str, Any]:
     """Load and execute a profile (without saving)."""
     _ensure_initialized()
     return run_profile_tool(profile_id)
+
+
+@mcp.tool()
+def load_profile(profile_id: str) -> Dict[str, Any]:
+    """Load a profile onto the machine (select it) without starting execution.
+    
+    Use this when the user wants to verify the profile on the machine's display
+    or manually start the shot button.
+    """
+    _ensure_initialized()
+    return load_profile_tool(profile_id)
 
 
 @mcp.tool()
