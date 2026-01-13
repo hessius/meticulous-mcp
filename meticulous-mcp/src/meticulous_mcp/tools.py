@@ -442,7 +442,11 @@ def update_profile_tool(input_data: ProfileUpdateInput) -> Dict[str, Any]:
                 # Normalize exit_triggers - ensure relative is always present
                 for trigger in stage_dict["exit_triggers"]:
                     if "relative" not in trigger or trigger.get("relative") is None:
-                        trigger["relative"] = False
+                        # Default relative to True for time triggers (stage duration), False for others (absolute value)
+                        if trigger.get("type") == "time":
+                            trigger["relative"] = True
+                        else:
+                            trigger["relative"] = False
                 
                 # Ensure limits is always present as an array (empty if None/missing)
                 # The machine expects limits to always be an array, not None or missing
