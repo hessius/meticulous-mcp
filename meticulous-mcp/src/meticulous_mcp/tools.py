@@ -439,11 +439,6 @@ def update_profile_tool(input_data: ProfileUpdateInput) -> Dict[str, Any]:
                 if "exit_triggers" not in stage_dict:
                     stage_dict["exit_triggers"] = []
                 
-                # Normalize exit_triggers - ensure relative is always present
-                for trigger in stage_dict["exit_triggers"]:
-                    if "relative" not in trigger or trigger.get("relative") is None:
-                        trigger["relative"] = False
-                
                 # Ensure limits is always present as an array (empty if None/missing)
                 # The machine expects limits to always be an array, not None or missing
                 if "limits" not in stage_dict or stage_dict.get("limits") is None:
@@ -831,3 +826,128 @@ def run_profile_tool(profile_id: str) -> Dict[str, Any]:
         "status": action_result.status,
     }
 
+def list_shot_history_tool(date: Optional[str] = None) -> Dict[str, Any]:
+    """List available shot history (dates or files).
+    
+    Args:
+        date: Optional date string (YYYY-MM-DD). If provided, lists files for that date.
+              If not provided, lists available dates.
+    
+    Returns:
+        Dictionary containing list of dates or files.
+    """
+    _ensure_initialized()
+    
+    if date:
+        result = _api_client.get_shot_files(date)
+        if isinstance(result, APIError):
+            error_msg = result.error or result.status or "Unknown error"
+            raise Exception(f"Failed to list shot files for {date}: {error_msg}")
+        return {"files": [f.name for f in result]}
+    
+    result = _api_client.get_history_dates()
+    if isinstance(result, APIError):
+         error_msg = result.error or result.status or "Unknown error"
+         raise Exception(f"Failed to list history: {error_msg}")
+         
+    return {"dates": [d.name for d in result]}
+
+def get_shot_url_tool(date: str, filename: str) -> Dict[str, str]:
+    """Get the download URL for a specific shot.
+    
+    Args:
+        date: Date string (YYYY-MM-DD).
+        filename: Shot filename (e.g. HH:MM:SS.shot.json.zst).
+        
+    Returns:
+        Dictionary containing the URL.
+    """
+    _ensure_initialized()
+    
+    url = _api_client.get_shot_url(date, filename)
+    return {"url": url}
+
+
+def get_machine_status_tool() -> Dict[str, Any]:
+    """Get the current status of the Meticulous machine.
+    
+    Returns:
+        Dictionary containing machine status (temperature, water level, state).
+    """
+    _ensure_initialized()
+    
+    result = _api_client.get_machine_status()
+    if isinstance(result, APIError):
+        error_msg = result.error or result.status or "Unknown error"
+        raise Exception(f"Failed to get machine status: {error_msg}")
+    
+    if result is None:
+        return {
+            "state": "idle",
+            "message": "Machine is idle (no active shot)"
+        }
+    
+    # If it's a Pydantic model, dump it to dict
+    if hasattr(result, "model_dump"):
+        return result.model_dump()
+        
+    return result
+
+
+def get_settings_tool() -> Dict[str, Any]:
+    """Get the current settings of the Meticulous machine.
+    
+    Returns:
+        Dictionary containing settings (auto_preheat, sounds, etc).
+    """
+    _ensure_initialized()
+    
+    try:
+        result = _api_client.get_settings()
+        if isinstance(result, APIError):
+            error_msg = result.error or result.status or "Unknown error"
+            raise Exception(f"Failed to get settings: {error_msg}")
+        
+        # If it's a Pydantic model, dump it to dict
+        if hasattr(result, "model_dump"):
+            return result.model_dump()
+            
+        return result
+    except Exception as e:
+        # Fallback: if validation failed in the client wrapper, try to get raw settings
+        # This handles cases where the machine firmware has new/different fields than the SDK expects
+        try:
+            # We access the internal API session directly to bypass strict validation
+            if hasattr(_api_client, "_api") and hasattr(_api_client._api, "session") and hasattr(_api_client._api, "base_url"):
+                response = _api_client._api.session.get(f"{_api_client._api.base_url}/api/v1/settings")
+                if response.status_code == 200:
+                    return response.json()
+        except Exception:
+            pass # Fallback failed, raise original error
+            
+        raise Exception(f"Failed to get settings: {e}")
+
+
+def update_setting_tool(key: str, value: Any) -> Dict[str, Any]:
+    """Update a specific setting on the Meticulous machine.
+    
+    Args:
+        key: The setting key to update (e.g., 'auto_preheat').
+        value: The new value for the setting.
+        
+    Returns:
+        Dictionary confirming the update.
+    """
+    _ensure_initialized()
+    
+    result = _api_client.update_setting(key, value)
+    if isinstance(result, APIError):
+        error_msg = result.error or result.status or "Unknown error"
+        raise Exception(f"Failed to update setting '{key}': {error_msg}")
+    
+    return {
+        "message": f"Setting '{key}' updated successfully",
+        "key": key,
+        "value": value,
+        "settings": result
+    }

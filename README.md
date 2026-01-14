@@ -178,6 +178,9 @@ Your Meticulous MCP server should now be available!
 
 Once connected, you can ask your AI assistant to:
 
+- **Monitor machine status** - "Check current temperature and state"
+- **Manage settings** - "Enable auto-preheat" or "Change the sound theme"
+- **Access shot history** - "Get the log file for my last shot"
 - **Create espresso profiles** - "Create a new espresso profile with..."
 - **List profiles** - "Show me all my espresso profiles"
 - **Get profile details** - "Show me the details of profile X or explain this profile to me.."
@@ -505,6 +508,15 @@ If you prefer to use the Python module directly instead of the run script:
 4. Try accessing `http://your-machine-name.local` in a browser
 
 ## Tools Reference
+
+### get_machine_status
+Get the current status of the Meticulous machine (temperature, state, current shot data).
+
+### get_settings / update_setting
+Read and modify machine settings like `auto_preheat`, `enable_sounds`, etc.
+
+### list_shot_history / get_shot_url
+Browse history by date and retrieve direct download links for shot logs.
 
 ### create_profile
 Create a new espresso profile with structured parameters.

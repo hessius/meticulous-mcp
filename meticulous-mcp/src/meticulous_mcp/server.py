@@ -38,6 +38,11 @@ from .tools import (
     delete_profile_tool,
     validate_profile_tool,
     run_profile_tool,
+    get_machine_status_tool,
+    get_settings_tool,
+    update_setting_tool,
+    list_shot_history_tool,
+    get_shot_url_tool,
     ProfileCreateInput,
     ProfileUpdateInput,
 )
@@ -48,24 +53,50 @@ mcp = FastMCP("Meticulous Espresso Profile Server")
 # Global instances
 _api_client: Optional[MeticulousAPIClient] = None
 _validator: Optional[ProfileValidator] = None
+_schema_path: Optional[Path] = None
+_rfc_path: Optional[Path] = None
 
 
 def _ensure_initialized() -> None:
     """Ensure server is initialized."""
-    global _api_client, _validator
+    global _api_client, _validator, _schema_path, _rfc_path
     if _api_client is None or _validator is None:
         # Initialize on first use
         base_url = os.getenv("METICULOUS_API_URL", "http://meticulousmodelalmondmilklatte.local")
         _api_client = MeticulousAPIClient(base_url=base_url)
         
-        # Find schema file
-        current_dir = Path(__file__).parent.parent.parent
-        schema_path = current_dir / "espresso-profile-schema" / "schema.json"
-        if not schema_path.exists():
-            # Try alternative location
-            schema_path = Path(__file__).parent.parent.parent.parent / "espresso-profile-schema" / "schema.json"
+        # Find schema directory
+        possible_dirs = []
         
-        _validator = ProfileValidator(schema_path=str(schema_path))
+        # 1. Check standard Docker path (where Dockerfile clones it)
+        possible_dirs.append(Path("/app/espresso-profile-schema"))
+        
+        # 2. Check env var
+        env_schema_dir = os.getenv("METICULOUS_SCHEMA_DIR")
+        if env_schema_dir:
+            possible_dirs.insert(0, Path(env_schema_dir))
+
+        # 3. Check relative paths (development/local)
+        server_path = Path(__file__).resolve()
+        # meticulous-mcp/src/meticulous_mcp/server.py -> meticulous-mcp/espresso-profile-schema
+        possible_dirs.append(server_path.parent.parent.parent / "espresso-profile-schema")
+        # meticulous-mcp/src/meticulous_mcp/server.py -> espresso-profile-schema (sibling of repo)
+        possible_dirs.append(server_path.parent.parent.parent.parent / "espresso-profile-schema")
+        
+        found_dir = None
+        for d in possible_dirs:
+            if (d / "schema.json").exists():
+                found_dir = d
+                break
+        
+        # Fallback to Docker path if nothing found (avoids crash before error reporting)
+        if found_dir is None:
+            found_dir = Path("/app/espresso-profile-schema")
+            
+        _schema_path = found_dir / "schema.json"
+        _rfc_path = found_dir / "rfc.md"
+        
+        _validator = ProfileValidator(schema_path=str(_schema_path))
         initialize_tools(_api_client, _validator)
 
 
@@ -223,6 +254,75 @@ def run_profile(profile_id: str) -> Dict[str, Any]:
     """Load and execute a profile (without saving)."""
     _ensure_initialized()
     return run_profile_tool(profile_id)
+
+
+@mcp.tool()
+def get_machine_status() -> Dict[str, Any]:
+    """Get the current machine status (telemetry)."""
+    _ensure_initialized()
+    return get_machine_status_tool()
+
+
+@mcp.tool()
+def get_settings() -> Dict[str, Any]:
+    """Get machine settings (e.g. auto_preheat, sounds)."""
+    _ensure_initialized()
+    return get_settings_tool()
+
+
+@mcp.tool()
+def update_setting(key: str, value: Union[str, int, float, bool]) -> Dict[str, Any]:
+    """Update a machine setting.
+    
+    Args:
+        key: The setting key to update (e.g. 'auto_preheat', 'enable_sounds').
+        value: The new value.
+    """
+    _ensure_initialized()
+    return update_setting_tool(key, value)
+
+
+@mcp.tool()
+def list_shot_history(date: Optional[str] = None) -> Dict[str, Any]:
+    """List available shot history.
+    
+    If date is provided, lists the specific shot files for that date.
+    If no date is provided, lists all dates with available history.
+    
+    Args:
+        date: Date string (YYYY-MM-DD). Optional.
+    """
+    _ensure_initialized()
+    return list_shot_history_tool(date)
+
+
+@mcp.tool()
+def get_shot_url(date: str, filename: str) -> Dict[str, Any]:
+    """Get the download URL for a specific shot log.
+    
+    Args:
+        date: Date string (YYYY-MM-DD).
+        filename: Shot filename (e.g. HH:MM:SS.shot.json.zst).
+    """
+    _ensure_initialized()
+    return get_shot_url_tool(date, filename)
+
+
+@mcp.tool()
+def get_profiling_knowledge(topic: str = "rfc") -> str:
+    """Get expert knowledge on espresso profiling.
+    
+    Args:
+        topic: 'rfc' for the Open Espresso Profile Format RFC, 'guide' for the general profiling guide, or 'schema' for the JSON schema.
+    """
+    _ensure_initialized()
+    
+    if topic.lower() == "rfc":
+        return espresso_rfc()
+    elif topic.lower() == "schema":
+        return espresso_schema()
+    else:
+        return espresso_knowledge()
 
 
 # Register resources
@@ -647,14 +747,27 @@ def espresso_schema() -> str:
     """Get the profile schema reference."""
     _ensure_initialized()
     try:
-        schema_path = Path(__file__).parent.parent.parent / "espresso-profile-schema" / "schema.json"
-        if not schema_path.exists():
-            schema_path = Path(__file__).parent.parent.parent.parent / "espresso-profile-schema" / "schema.json"
-        
-        with open(schema_path, "r", encoding="utf-8") as f:
+        if not _schema_path or not _schema_path.exists():
+            return f"Error: Schema file not found at {_schema_path}"
+            
+        with open(_schema_path, "r", encoding="utf-8") as f:
             return json.dumps(json.load(f), indent=2)
     except Exception as e:
         return f"Error loading schema: {e}"
+
+
+@mcp.resource("espresso://rfc")
+def espresso_rfc() -> str:
+    """Get the Open Espresso Profile Format RFC document."""
+    _ensure_initialized()
+    try:
+        if not _rfc_path or not _rfc_path.exists():
+            return f"Error: RFC file not found at {_rfc_path}"
+
+        with open(_rfc_path, "r", encoding="utf-8") as f:
+            return f.read()
+    except Exception as e:
+        return f"Error loading RFC: {e}"
 
 
 @mcp.resource("espresso://profile/{profile_id}")
@@ -875,12 +988,19 @@ def troubleshoot_profile(
     
     system_context = """You are an expert espresso troubleshooting specialist for the Meticulous machine.
 
-Use the troubleshooting guide to diagnose and fix profile issues:
+**Operational Mandate: Fetch then Analyze**
+To diagnose issues effectively, you must follow this workflow:
+1.  **Locate Shot:** Use `list_shot_history(date=...)` to find the relevant shot file.
+2.  **Get URL:** Use `get_shot_url(date=..., filename=...)` to get the direct download link.
+3.  **Download & Analyze:** Use `curl` or similar to download the JSON from the URL to a local file. Use any locally written scripts to extract and analyze key metrics (flow stability, pressure limits, temperature stability). If no script currently exists, create it. Refine the script as necessary to address the user's inquiries and observations.
+4.  **Diagnose:** Combine your analysis with the user's reported symptom.
+
+**Troubleshooting Guide**:
 
 **Diagnosis Process**:
 1. Identify the taste/texture symptom
 2. Determine if it's under-extraction, over-extraction, or flow issue
-3. Check shot parameters (duration, yield, pressure curve)
+3. Check shot parameters (duration, yield, pressure curve) from the fetched data
 4. Apply targeted fixes based on the issue category
 
 **Key Principles**:
@@ -920,7 +1040,7 @@ Do NOT attempt to troubleshoot profile parameters if you're getting connection e
         prompt_parts.append(f"(yield: {yield_weight}g)")
     
     prompt_text = " ".join(prompt_parts) + "."
-    prompt_text += "\n\nAnalyze the issue and recommend specific profile modifications."
+    prompt_text += "\n\nRetrieve the relevant shot data and analyze it to recommend modifications."
     
     messages.append({
         "role": "user",
