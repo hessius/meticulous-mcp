@@ -129,7 +129,8 @@ def create_profile(input_data: str) -> Dict[str, Any]:
                 ...
               ],
               "variables": [...],  // optional
-              "accent_color": "#FF5733"  // optional
+              "accent_color": "#FF5733",  // optional
+              "image": "data:image/png;base64,..."  // optional base64 data URI or relative URL
             }
     """
     _ensure_initialized()
@@ -184,6 +185,7 @@ def update_profile(update_data: str) -> Dict[str, Any]:
               "name": "New Name",  // optional
               "temperature": 92.0,  // optional
               "final_weight": 40.0,  // optional
+              "image": "data:image/png;base64,...",  // optional base64 data URI or relative URL
               "stages_json": "[...]"  // optional - JSON string of stages array
             }
             
@@ -826,7 +828,13 @@ Profile Design Principles:
 - Always include safety timeouts to prevent infinite extraction.
 - Avoid exact match triggers - they're unreliable.
 
-Create profiles with structured stages using exit triggers based on flow rate, weight, time, or pressure. Favor flow rate, and pressure over time. Use time in conjunction with other measures or as an or gate if something is taking too long."""
+Create profiles with structured stages using exit triggers based on flow rate, weight, time, or pressure. Favor flow rate, and pressure over time. Use time in conjunction with other measures or as an or gate if something is taking too long.
+
+Image Handling:
+- If the user requests an image or icon for the profile, use your image generation capabilities to create one.
+- Format: Square aspect ratio (e.g., 512x512).
+- Encoding: Convert the image to a base64 Data URI string (e.g., "data:image/png;base64,...").
+- Pass this string in the 'image' field of the profile creation data."""
     
     messages.append({
         "role": "system",
@@ -923,7 +931,12 @@ Common Issues & Solutions:
 - Primary: Grind coarser
 - Profile fix: Add bloom phase or increase initial infusion pressure
 
-Modify profiles incrementally - adjust one parameter at a time to understand its effect."""
+Modify profiles incrementally - adjust one parameter at a time to understand its effect.
+
+Image Updates:
+- If asked to update the profile icon/image, generate a new one (512x512 square).
+- Convert to base64 Data URI string ("data:image/png;base64,...").
+- Pass in the 'image' field."""
     
     messages.append({
         "role": "system",

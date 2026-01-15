@@ -87,6 +87,9 @@ class ProfileCreateInput(BaseModel):
     accent_color: Optional[str] = Field(
         default=None, description="Optional accent color in hex format (e.g., '#FF5733')"
     )
+    image: Optional[str] = Field(
+        default=None, description="Optional base64 image data URI or relative URL"
+    )
 
 
 class ProfileUpdateInput(BaseModel):
@@ -96,6 +99,7 @@ class ProfileUpdateInput(BaseModel):
     name: Optional[str] = Field(default=None, description="New profile name")
     temperature: Optional[float] = Field(default=None, description="New temperature")
     final_weight: Optional[float] = Field(default=None, description="New final weight")
+    image: Optional[str] = Field(default=None, description="New base64 image data URI or relative URL")
     # Accept stages as either a list of dicts or a JSON string
     stages: Optional[List[Dict[str, Any]]] = Field(
         default=None, description="Optional list of stage dictionaries (full replacement)"
@@ -263,10 +267,13 @@ def create_profile_tool(input_data: ProfileCreateInput) -> Dict[str, Any]:
             variables=variables,
         )
         
-        # Add display if accent_color provided
-        if input_data.accent_color:
+        # Add display if accent_color or image provided
+        if input_data.accent_color or input_data.image:
             from meticulous.profile import Display
-            profile.display = Display(accentColor=input_data.accent_color)
+            profile.display = Display(
+                accentColor=input_data.accent_color,
+                image=input_data.image
+            )
         
         # Lint profile BEFORE normalization to catch issues that will be auto-fixed
         # This helps agents understand what normalization will happen
@@ -400,6 +407,12 @@ def update_profile_tool(input_data: ProfileUpdateInput) -> Dict[str, Any]:
         existing.temperature = input_data.temperature
     if input_data.final_weight is not None:
         existing.final_weight = input_data.final_weight
+    if input_data.image is not None:
+        from meticulous.profile import Display
+        if existing.display is None:
+            existing.display = Display(image=input_data.image)
+        else:
+            existing.display.image = input_data.image
     
     # Update stages if provided (accept either 'stages' list or 'stages_json' string)
     stages_to_process = None
