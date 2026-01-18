@@ -315,19 +315,65 @@ def get_profiling_knowledge(topic: str = "rfc") -> str:
     """Get expert knowledge on espresso profiling.
     
     Args:
-        topic: 'rfc' for the Open Espresso Profile Format RFC, 'guide' for the general profiling guide, or 'schema' for the JSON schema.
+        topic: 'rfc' for the Open Espresso Profile Format RFC, 'guide' for the general profiling guide, 'schema' for the JSON schema, or 'mechanics' for Meticulous hardware axioms.
     """
     _ensure_initialized()
     
-    if topic.lower() == "rfc":
+    t_lower = topic.lower()
+    if t_lower == "rfc":
         return espresso_rfc()
-    elif topic.lower() == "schema":
+    elif t_lower == "schema":
         return espresso_schema()
+    elif t_lower == "mechanics":
+        return meticulous_mechanics()
     else:
         return espresso_knowledge()
 
 
 # Register resources
+@mcp.resource("meticulous://mechanics")
+def meticulous_mechanics() -> str:
+    """Get the machine-specific physics, firmware behaviors, and control axioms for the Meticulous machine."""
+    return """# Meticulous Machine Mechanics & Axioms
+
+This document formalizes the machine-specific physics, firmware behaviors, and control axioms discovered through forensic analysis.
+
+## 1. Hydraulic & Volumetric Systems
+- **Axiom of Finite Displacement:** The machine is a volumetric engine with a hard piston stroke limit (~70mm). 1mm of travel ≈ 1.5ml of water.
+- **The Moving Start Line:** Piston starting position is dynamically set by the `Shot Volume` setting. Higher volume settings move the start line up, providing more "travel budget."
+- **Volumetric Safety Advance:** If the piston exceeds ~63mm (near-bottom), the firmware may force an exit to the next stage to ensure the shot can complete its target yield before the piston bottoms out.
+
+## 2. Motor Control & Safety Limits
+- **The Impulse Limit (Safety (Power)):** High-power stages (e.g., 100% "Hammer") may be subject to a firmware safety timeout (~2.0s) to prevent overheating or mechanical stress during high-resistance events. Use power carefully.
+- **Firmware Stall Protection:** If motor speed hits 0 while power is >35%, the machine assumes a mechanical stall.
+    - *Behavior:* If a subsequent extraction stage exists, it force-advances (Firmware Stall Trip). If no stages remain, it ends the shot.
+
+## 3. Control Loop & Inertial Mechanics
+- **The Stateless Handoff Problem:** Stages do not inherit state. Each stage must define its own starting value (Pressure/Flow/Power).
+- **The Inertial Handoff Axiom:** PID stability is maximized when transitioning between stages with non-zero piston velocity (V > 0). 
+- **Breakaway Torque (Static Friction):** Initiating a ramp from a static state (V=0) requires a non-linear pressure/power spike to break resistance, which can fracture the puck bed.
+- **The Leading Edge Strategy:** To maintain momentum through stateless handoffs:
+    - **Target (Aim):** Set stage AIM slightly higher than the intended exit point.
+    - **Trigger:** Set `exit_trigger` to the actual desired value.
+    - **Start (Next Stage):** Set the starting value of the next stage slightly *lower* than the trigger point to let the PID "find" the target from below.
+
+## 4. Sensing & Trigger Logic
+- **Reactive Flow Capping:** Flow `Limits` are reactive and sensitive. Overshooting a limit triggers a sharp power correction (often to zero), causing "bouncing" and loss of momentum.
+- **Predictive Weight Targeting:** Weight `Triggers` are predictive. The machine calculates the exit point in advance to account for water-in-flight and scale lag. This is the most accurate method for stage transitions.
+
+## 5. JSON Formatting Axioms (Machine Compatibility)
+- **Relative Triggers:** The `relative` field is required for all `exit_triggers`.
+    - Use `relative: true` for Time triggers to define Stage Duration.
+    - Use `relative: false` for Weight/Pressure triggers to define Absolute Values (e.g. Total Weight).
+- **Explicit Limits:** Every `stage` MUST include a `limits` array. If no limits are desired, provide an empty array `[]`.
+
+## 6. Barista Forensic SOPs (Diagnostic Axioms)
+- **Weight Gain as Porosity Marker:** Weight gain during a "zero-flow" stage (e.g., Settle) is a direct measure of puck permeability.
+- **First Drip Velocity:** The timing of the first drip relative to fill volume indicates compaction efficiency.
+- **Pressure Misses:** Failing to hit a pressure target while at a flow limit indicates the grind/puck resistance is too low for the programmed flow (Too Coarse).
+"""
+
+
 @mcp.resource("espresso://knowledge")
 def espresso_knowledge() -> str:
     """Get comprehensive espresso profiling knowledge for the Meticulous machine."""
@@ -828,6 +874,14 @@ Profile Design Principles:
 - Always include safety timeouts to prevent infinite extraction.
 - Avoid exact match triggers - they're unreliable.
 
+Hardware Constraints: 
+- **Volumetric Check:** You MUST calculate the estimated piston travel (`Target Vol / 1.5 ml/mm`). Ensure the total does not exceed the ~70mm limit.
+- **Power Stages:** High-power "Hammer" stages (100% Power) are valid but strict. They will timeout/advance after ~2.0s. Design them to do their work (compaction) instantly.
+
+JSON Formatting Requirements:
+- **Relative Triggers:** You MUST include `"relative": true` (for duration) or `"relative": false` (for absolute values) in every exit trigger.
+- **Limits Array:** You MUST include `"limits": []` (empty array) in every stage if no limits are needed.
+
 Create profiles with structured stages using exit triggers based on flow rate, weight, time, or pressure. Favor flow rate, and pressure over time. Use time in conjunction with other measures or as an or gate if something is taking too long.
 
 Image Handling:
@@ -933,6 +987,14 @@ Common Issues & Solutions:
 
 Modify profiles incrementally - adjust one parameter at a time to understand its effect.
 
+Hardware Constraints:
+- **Volumetric Check:** If increasing yield, calculate the new estimated travel (`Target Vol / 1.5 ml/mm`) to ensure it fits within ~70mm.
+- **Power Stages:** If modifying a "Hammer" stage, keep duration <2.0s to avoid safety timeouts.
+
+JSON Formatting Requirements:
+- **Relative Triggers:** Ensure every exit trigger has `"relative": true` (duration) or `"relative": false` (absolute).
+- **Limits Array:** Ensure every stage has a `"limits"` array (use `[]` if empty).
+
 Image Updates:
 - If asked to update the profile icon/image, generate a new one (512x512 square).
 - Convert to base64 Data URI string ("data:image/png;base64,...").
@@ -1007,6 +1069,10 @@ To diagnose issues effectively, you must follow this workflow:
 2.  **Get URL:** Use `get_shot_url(date=..., filename=...)` to get the direct download link.
 3.  **Download & Analyze:** Use `curl` or similar to download the JSON from the URL to a local file. Use any locally written scripts to extract and analyze key metrics (flow stability, pressure limits, temperature stability). If no script currently exists, create it. Refine the script as necessary to address the user's inquiries and observations.
 4.  **Diagnose:** Combine your analysis with the user's reported symptom.
+
+**Forensic Analysis Mandate**:
+- You MUST cross-reference your findings with **`meticulous://mechanics`** (or call `get_profiling_knowledge(topic='mechanics')`) to validate your diagnosis against hardware axioms (e.g., 'Weight Gain as Porosity Marker', 'Firmware Stall Protection', 'Volumetric Safety Advance').
+- Look for non-obvious mechanical causes (e.g., a skipped stage might be a safety trip, not a bug).
 
 **Troubleshooting Guide**:
 
