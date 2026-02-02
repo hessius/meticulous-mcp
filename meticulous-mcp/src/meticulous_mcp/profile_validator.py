@@ -110,6 +110,10 @@ class ProfileValidator:
         pressure_errors = self._validate_pressure_limits(profile)
         errors.extend(pressure_errors)
         
+        # Add custom validation for interpolation values
+        interpolation_errors = self._validate_interpolation(profile)
+        errors.extend(interpolation_errors)
+        
         return len(errors) == 0, errors
 
     def validate_and_raise(self, profile: Dict[str, Any]) -> None:
@@ -170,6 +174,42 @@ class ProfileValidator:
                             errors.append(f"Stage '{stage_name}' exit trigger {trigger_idx+1} has pressure {pressure_val} bar which exceeds the 15 bar limit. Please reduce pressure to 15 bar or below.")
                         elif pressure_val < 0:
                             errors.append(f"Stage '{stage_name}' exit trigger {trigger_idx+1} has negative pressure {pressure_val} bar. Pressure must be non-negative.")
+        
+        return errors
+
+    def _validate_interpolation(self, profile: Dict[str, Any]) -> List[str]:
+        """Validate interpolation values in profile dynamics.
+        
+        The Meticulous machine only supports 'linear' and 'curve' interpolation.
+        The value 'none' is not supported and will cause the machine to stall.
+        
+        Args:
+            profile: Profile dictionary to validate
+            
+        Returns:
+            List of interpolation-related validation errors
+        """
+        errors = []
+        valid_interpolations = {"linear", "curve"}
+        
+        if "stages" not in profile or not isinstance(profile["stages"], list):
+            return errors
+        
+        for i, stage in enumerate(profile["stages"]):
+            if not isinstance(stage, dict):
+                continue
+            
+            stage_name = stage.get("name", f"Stage {i+1}")
+            dynamics = stage.get("dynamics", {})
+            
+            if isinstance(dynamics, dict):
+                interpolation = dynamics.get("interpolation")
+                if interpolation is not None and interpolation not in valid_interpolations:
+                    errors.append(
+                        f"Stage '{stage_name}' has invalid interpolation value '{interpolation}'. "
+                        f"Only 'linear' and 'curve' are supported. "
+                        f"The value 'none' is not supported by the Meticulous machine and will cause it to stall."
+                    )
         
         return errors
 
@@ -260,6 +300,11 @@ class ProfileValidator:
                         over = dynamics.get("over", "")
                         if over not in ["time", "weight", "piston_position"]:
                             warnings.append(f"Stage '{stage_name}' has invalid dynamics.over value '{over}' - should be 'time', 'weight', or 'piston_position'")
+                        
+                        # Check interpolation value
+                        interpolation = dynamics.get("interpolation", "")
+                        if interpolation not in ["linear", "curve"]:
+                            warnings.append(f"Stage '{stage_name}' has invalid interpolation '{interpolation}' - should be 'linear' or 'curve'. The value 'none' is not supported.")
                     
                     # Check stage type
                     stage_type = stage.get("type", "")

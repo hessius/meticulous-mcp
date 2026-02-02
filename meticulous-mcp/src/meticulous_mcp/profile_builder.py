@@ -102,11 +102,19 @@ def create_dynamics(
     Args:
         points: List of [x, y] points where values can be numbers or variable references
         over: What to interpolate over: "piston_position", "time", or "weight"
-        interpolation: Interpolation method: "none", "linear", or "curve"
+        interpolation: Interpolation method: "linear" or "curve". Note: "none" is not supported.
         
     Returns:
         Dynamics object
+        
+    Raises:
+        ValueError: If interpolation is "none" (not supported by the machine)
     """
+    if interpolation == "none":
+        raise ValueError(
+            "Interpolation 'none' is not supported by the Meticulous machine. "
+            "Use 'linear' for straight-line interpolation or 'curve' for smooth curves."
+        )
     return Dynamics(points=points, over=over, interpolation=interpolation)
 
 

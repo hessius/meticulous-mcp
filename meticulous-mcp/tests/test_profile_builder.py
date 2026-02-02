@@ -226,9 +226,13 @@ def test_create_dynamics_interpolation_types():
     
     curve = create_dynamics(points=[[0, 4], [10, 8]], over="time", interpolation="curve")
     assert curve.interpolation == "curve"
-    
-    none = create_dynamics(points=[[0, 4]], over="time", interpolation="none")
-    assert none.interpolation == "none"
+
+
+def test_create_dynamics_rejects_none_interpolation():
+    """Test that 'none' interpolation is rejected (not supported by machine)."""
+    import pytest
+    with pytest.raises(ValueError, match="not supported"):
+        create_dynamics(points=[[0, 4]], over="time", interpolation="none")
 
 
 def test_create_stage_with_limits():

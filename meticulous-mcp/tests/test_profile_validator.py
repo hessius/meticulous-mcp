@@ -859,3 +859,130 @@ def test_validate_multiple_pressure_violations(validator):
     pressure_errors = [e for e in errors if ("15 bar limit" in e.lower() or "negative pressure" in e.lower())]
     assert len(pressure_errors) >= 3
 
+
+def test_validate_interpolation_none_fails(validator):
+    """Test validation fails when interpolation is 'none' (not supported by machine)."""
+    profile = {
+        "name": "Test Profile",
+        "id": "test-id",
+        "temperature": 90.0,
+        "stages": [
+            {
+                "name": "Stage with none interpolation",
+                "key": "stage_1",
+                "type": "flow",
+                "dynamics": {
+                    "points": [[0, 4]],
+                    "over": "time",
+                    "interpolation": "none",  # This should fail
+                },
+                "exit_triggers": [{"type": "time", "value": 30, "relative": True}],
+                "limits": [],
+            }
+        ],
+    }
+    is_valid, errors = validator.validate(profile)
+    assert not is_valid
+    assert any("interpolation" in e.lower() and "none" in e.lower() and "not supported" in e.lower() for e in errors)
+
+
+def test_validate_interpolation_linear_passes(validator):
+    """Test validation passes when interpolation is 'linear'."""
+    profile = {
+        "name": "Test Profile",
+        "id": "test-id",
+        "temperature": 90.0,
+        "stages": [
+            {
+                "name": "Stage with linear interpolation",
+                "key": "stage_1",
+                "type": "flow",
+                "dynamics": {
+                    "points": [[0, 4], [10, 6]],
+                    "over": "time",
+                    "interpolation": "linear",
+                },
+                "exit_triggers": [{"type": "time", "value": 30, "relative": True}],
+                "limits": [],
+            }
+        ],
+    }
+    is_valid, errors = validator.validate(profile)
+    interpolation_errors = [e for e in errors if "interpolation" in e.lower()]
+    assert len(interpolation_errors) == 0
+
+
+def test_validate_interpolation_curve_passes(validator):
+    """Test validation passes when interpolation is 'curve'."""
+    profile = {
+        "name": "Test Profile",
+        "id": "test-id",
+        "temperature": 90.0,
+        "stages": [
+            {
+                "name": "Stage with curve interpolation",
+                "key": "stage_1",
+                "type": "flow",
+                "dynamics": {
+                    "points": [[0, 4], [10, 6]],
+                    "over": "time",
+                    "interpolation": "curve",
+                },
+                "exit_triggers": [{"type": "time", "value": 30, "relative": True}],
+                "limits": [],
+            }
+        ],
+    }
+    is_valid, errors = validator.validate(profile)
+    interpolation_errors = [e for e in errors if "interpolation" in e.lower()]
+    assert len(interpolation_errors) == 0
+
+
+def test_validate_interpolation_invalid_value_fails(validator):
+    """Test validation fails for any invalid interpolation value."""
+    profile = {
+        "name": "Test Profile",
+        "id": "test-id",
+        "temperature": 90.0,
+        "stages": [
+            {
+                "name": "Stage with invalid interpolation",
+                "key": "stage_1",
+                "type": "flow",
+                "dynamics": {
+                    "points": [[0, 4]],
+                    "over": "time",
+                    "interpolation": "invalid_value",  # This should fail
+                },
+                "exit_triggers": [{"type": "time", "value": 30, "relative": True}],
+                "limits": [],
+            }
+        ],
+    }
+    is_valid, errors = validator.validate(profile)
+    assert not is_valid
+    assert any("interpolation" in e.lower() for e in errors)
+
+
+def test_lint_interpolation_none_warns(validator):
+    """Test linting warns when interpolation is 'none'."""
+    profile = {
+        "name": "Test Profile",
+        "id": "test-id",
+        "temperature": 90.0,
+        "stages": [
+            {
+                "name": "Stage 1",
+                "key": "stage_1",
+                "dynamics": {
+                    "points": [[0, 4]],
+                    "over": "time",
+                    "interpolation": "none",
+                },
+                "exit_triggers": [{"type": "time", "value": 30}],
+            }
+        ],
+    }
+    warnings = validator.lint(profile)
+    assert any("interpolation" in w.lower() and "none" in w.lower() and "not supported" in w.lower() for w in warnings)
+
