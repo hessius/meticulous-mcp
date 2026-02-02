@@ -1281,28 +1281,104 @@ def test_validate_invalid_limit_type_fails(validator):
 
 
 def test_validate_valid_limit_types_pass(validator):
-    """Test validation passes for valid limit types."""
-    for limit_type in ["pressure", "flow"]:
-        profile = {
-            "name": "Test Profile",
-            "id": "test-id",
-            "temperature": 90.0,
-            "stages": [
-                {
-                    "name": f"Stage with {limit_type} limit",
-                    "key": "stage_1",
-                    "type": "flow",
-                    "dynamics": {
-                        "points": [[0, 4]],
-                        "over": "time",
-                        "interpolation": "linear",
-                    },
-                    "exit_triggers": [{"type": "time", "value": 30, "relative": True}],
-                    "limits": [{"type": limit_type, "value": 10}],
-                }
-            ],
-        }
-        is_valid, errors = validator.validate(profile)
-        limit_errors = [e for e in errors if "limit" in e.lower() and "invalid" in e.lower()]
-        assert len(limit_errors) == 0
+    """Test validation passes for valid limit types when not redundant with stage type."""
+    # Pressure limit on flow stage - valid
+    profile = {
+        "name": "Test Profile",
+        "id": "test-id",
+        "temperature": 90.0,
+        "stages": [
+            {
+                "name": "Flow stage with pressure limit",
+                "key": "stage_1",
+                "type": "flow",
+                "dynamics": {
+                    "points": [[0, 4]],
+                    "over": "time",
+                    "interpolation": "linear",
+                },
+                "exit_triggers": [{"type": "time", "value": 30, "relative": True}],
+                "limits": [{"type": "pressure", "value": 10}],
+            }
+        ],
+    }
+    is_valid, errors = validator.validate(profile)
+    limit_errors = [e for e in errors if "limit" in e.lower()]
+    assert len(limit_errors) == 0
+
+    # Flow limit on pressure stage - valid
+    profile2 = {
+        "name": "Test Profile",
+        "id": "test-id",
+        "temperature": 90.0,
+        "stages": [
+            {
+                "name": "Pressure stage with flow limit",
+                "key": "stage_1",
+                "type": "pressure",
+                "dynamics": {
+                    "points": [[0, 9]],
+                    "over": "time",
+                    "interpolation": "linear",
+                },
+                "exit_triggers": [{"type": "time", "value": 30, "relative": True}],
+                "limits": [{"type": "flow", "value": 4}],
+            }
+        ],
+    }
+    is_valid2, errors2 = validator.validate(profile2)
+    limit_errors2 = [e for e in errors2 if "limit" in e.lower()]
+    assert len(limit_errors2) == 0
+
+
+def test_validate_redundant_flow_limit_on_flow_stage_fails(validator):
+    """Test validation fails when a flow stage has a flow limit (redundant)."""
+    profile = {
+        "name": "Test Profile",
+        "id": "test-id",
+        "temperature": 90.0,
+        "stages": [
+            {
+                "name": "Pre-Wet & Bloom",
+                "key": "stage_1",
+                "type": "flow",
+                "dynamics": {
+                    "points": [[0, 3]],
+                    "over": "time",
+                    "interpolation": "linear",
+                },
+                "exit_triggers": [{"type": "time", "value": 30, "relative": True}],
+                "limits": [{"type": "flow", "value": 3}],  # Redundant!
+            }
+        ],
+    }
+    is_valid, errors = validator.validate(profile)
+    assert not is_valid
+    assert any("redundant" in e.lower() and "flow" in e.lower() for e in errors)
+
+
+def test_validate_redundant_pressure_limit_on_pressure_stage_fails(validator):
+    """Test validation fails when a pressure stage has a pressure limit (redundant)."""
+    profile = {
+        "name": "Test Profile",
+        "id": "test-id",
+        "temperature": 90.0,
+        "stages": [
+            {
+                "name": "Fruity Extraction",
+                "key": "stage_1",
+                "type": "pressure",
+                "dynamics": {
+                    "points": [[0, 9]],
+                    "over": "time",
+                    "interpolation": "linear",
+                },
+                "exit_triggers": [{"type": "time", "value": 30, "relative": True}],
+                "limits": [{"type": "pressure", "value": 9}],  # Redundant!
+            }
+        ],
+    }
+    is_valid, errors = validator.validate(profile)
+    assert not is_valid
+    assert any("redundant" in e.lower() and "pressure" in e.lower() for e in errors)
 

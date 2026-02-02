@@ -354,6 +354,8 @@ class ProfileValidator:
         """Validate limit values in profile.
         
         Limit type must be one of: 'pressure', 'flow'.
+        Additionally, a limit cannot have the same type as the stage control type,
+        as this is redundant and the Meticulous app will reject it.
         
         Args:
             profile: Profile dictionary to validate
@@ -372,6 +374,7 @@ class ProfileValidator:
                 continue
             
             stage_name = stage.get("name", f"Stage {i+1}")
+            stage_type = stage.get("type")
             limits = stage.get("limits", [])
             
             if not isinstance(limits, list):
@@ -386,6 +389,14 @@ class ProfileValidator:
                     errors.append(
                         f"Stage '{stage_name}' limit {limit_idx+1} has invalid type '{limit_type}'. "
                         f"Must be one of: 'pressure', 'flow'."
+                    )
+                
+                # Check for redundant limit (same type as stage control)
+                if limit_type is not None and stage_type is not None and limit_type == stage_type:
+                    errors.append(
+                        f"Stage '{stage_name}' has a '{limit_type}' limit but is a '{stage_type}' control stage. "
+                        f"This is redundant - you cannot limit {limit_type} when you're already controlling {stage_type}. "
+                        f"Use a '{('pressure' if limit_type == 'flow' else 'flow')}' limit instead, or remove the limit."
                     )
         
         return errors

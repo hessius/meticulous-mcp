@@ -1,5 +1,4 @@
 LICENSE
-README.md
 pyproject.toml
 src/meticulous_mcp/__init__.py
 src/meticulous_mcp/__main__.py
