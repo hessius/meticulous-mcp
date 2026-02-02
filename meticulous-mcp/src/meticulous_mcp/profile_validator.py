@@ -114,6 +114,22 @@ class ProfileValidator:
         interpolation_errors = self._validate_interpolation(profile)
         errors.extend(interpolation_errors)
         
+        # Add custom validation for dynamics.over values
+        dynamics_over_errors = self._validate_dynamics_over(profile)
+        errors.extend(dynamics_over_errors)
+        
+        # Add custom validation for stage types
+        stage_type_errors = self._validate_stage_types(profile)
+        errors.extend(stage_type_errors)
+        
+        # Add custom validation for exit triggers
+        exit_trigger_errors = self._validate_exit_triggers(profile)
+        errors.extend(exit_trigger_errors)
+        
+        # Add custom validation for limits
+        limit_errors = self._validate_limits(profile)
+        errors.extend(limit_errors)
+        
         return len(errors) == 0, errors
 
     def validate_and_raise(self, profile: Dict[str, Any]) -> None:
@@ -209,6 +225,167 @@ class ProfileValidator:
                         f"Stage '{stage_name}' has invalid interpolation value '{interpolation}'. "
                         f"Only 'linear' and 'curve' are supported. "
                         f"The value 'none' is not supported by the Meticulous machine and will cause it to stall."
+                    )
+                
+                # Check that 'curve' interpolation has at least 2 points
+                points = dynamics.get("points", [])
+                if interpolation == "curve" and len(points) < 2:
+                    errors.append(
+                        f"Stage '{stage_name}' uses 'curve' interpolation but has only {len(points)} point(s). "
+                        f"Curve interpolation requires at least 2 points. Use 'linear' for single-point dynamics."
+                    )
+        
+        return errors
+
+    def _validate_dynamics_over(self, profile: Dict[str, Any]) -> List[str]:
+        """Validate dynamics.over values in profile.
+        
+        The 'over' field must be one of: 'time', 'weight', 'piston_position'.
+        
+        Args:
+            profile: Profile dictionary to validate
+            
+        Returns:
+            List of dynamics.over validation errors
+        """
+        errors = []
+        valid_over_values = {"time", "weight", "piston_position"}
+        
+        if "stages" not in profile or not isinstance(profile["stages"], list):
+            return errors
+        
+        for i, stage in enumerate(profile["stages"]):
+            if not isinstance(stage, dict):
+                continue
+            
+            stage_name = stage.get("name", f"Stage {i+1}")
+            dynamics = stage.get("dynamics", {})
+            
+            if isinstance(dynamics, dict):
+                over = dynamics.get("over")
+                if over is not None and over not in valid_over_values:
+                    errors.append(
+                        f"Stage '{stage_name}' has invalid dynamics.over value '{over}'. "
+                        f"Must be one of: 'time', 'weight', 'piston_position'."
+                    )
+        
+        return errors
+
+    def _validate_stage_types(self, profile: Dict[str, Any]) -> List[str]:
+        """Validate stage type values in profile.
+        
+        Stage type must be one of: 'power', 'flow', 'pressure'.
+        
+        Args:
+            profile: Profile dictionary to validate
+            
+        Returns:
+            List of stage type validation errors
+        """
+        errors = []
+        valid_stage_types = {"power", "flow", "pressure"}
+        
+        if "stages" not in profile or not isinstance(profile["stages"], list):
+            return errors
+        
+        for i, stage in enumerate(profile["stages"]):
+            if not isinstance(stage, dict):
+                continue
+            
+            stage_name = stage.get("name", f"Stage {i+1}")
+            stage_type = stage.get("type")
+            
+            if stage_type is not None and stage_type not in valid_stage_types:
+                errors.append(
+                    f"Stage '{stage_name}' has invalid type '{stage_type}'. "
+                    f"Must be one of: 'power', 'flow', 'pressure'."
+                )
+        
+        return errors
+
+    def _validate_exit_triggers(self, profile: Dict[str, Any]) -> List[str]:
+        """Validate exit trigger values in profile.
+        
+        Exit trigger type must be one of: 'weight', 'pressure', 'flow', 'time', 
+        'piston_position', 'power', 'user_interaction'.
+        Comparison must be one of: '>=', '<='.
+        
+        Args:
+            profile: Profile dictionary to validate
+            
+        Returns:
+            List of exit trigger validation errors
+        """
+        errors = []
+        valid_trigger_types = {"weight", "pressure", "flow", "time", "piston_position", "power", "user_interaction"}
+        valid_comparisons = {">=", "<="}
+        
+        if "stages" not in profile or not isinstance(profile["stages"], list):
+            return errors
+        
+        for i, stage in enumerate(profile["stages"]):
+            if not isinstance(stage, dict):
+                continue
+            
+            stage_name = stage.get("name", f"Stage {i+1}")
+            exit_triggers = stage.get("exit_triggers", [])
+            
+            for trigger_idx, trigger in enumerate(exit_triggers):
+                if not isinstance(trigger, dict):
+                    continue
+                
+                trigger_type = trigger.get("type")
+                if trigger_type is not None and trigger_type not in valid_trigger_types:
+                    errors.append(
+                        f"Stage '{stage_name}' exit trigger {trigger_idx+1} has invalid type '{trigger_type}'. "
+                        f"Must be one of: {', '.join(sorted(valid_trigger_types))}."
+                    )
+                
+                comparison = trigger.get("comparison")
+                if comparison is not None and comparison not in valid_comparisons:
+                    errors.append(
+                        f"Stage '{stage_name}' exit trigger {trigger_idx+1} has invalid comparison '{comparison}'. "
+                        f"Must be one of: '>=', '<='."
+                    )
+        
+        return errors
+
+    def _validate_limits(self, profile: Dict[str, Any]) -> List[str]:
+        """Validate limit values in profile.
+        
+        Limit type must be one of: 'pressure', 'flow'.
+        
+        Args:
+            profile: Profile dictionary to validate
+            
+        Returns:
+            List of limit validation errors
+        """
+        errors = []
+        valid_limit_types = {"pressure", "flow"}
+        
+        if "stages" not in profile or not isinstance(profile["stages"], list):
+            return errors
+        
+        for i, stage in enumerate(profile["stages"]):
+            if not isinstance(stage, dict):
+                continue
+            
+            stage_name = stage.get("name", f"Stage {i+1}")
+            limits = stage.get("limits", [])
+            
+            if not isinstance(limits, list):
+                continue
+            
+            for limit_idx, limit in enumerate(limits):
+                if not isinstance(limit, dict):
+                    continue
+                
+                limit_type = limit.get("type")
+                if limit_type is not None and limit_type not in valid_limit_types:
+                    errors.append(
+                        f"Stage '{stage_name}' limit {limit_idx+1} has invalid type '{limit_type}'. "
+                        f"Must be one of: 'pressure', 'flow'."
                     )
         
         return errors

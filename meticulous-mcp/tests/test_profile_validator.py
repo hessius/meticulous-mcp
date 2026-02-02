@@ -986,3 +986,323 @@ def test_lint_interpolation_none_warns(validator):
     warnings = validator.lint(profile)
     assert any("interpolation" in w.lower() and "none" in w.lower() and "not supported" in w.lower() for w in warnings)
 
+
+# ==================== Additional Validation Tests ====================
+
+def test_validate_curve_interpolation_requires_two_points(validator):
+    """Test validation fails when curve interpolation has only 1 point."""
+    profile = {
+        "name": "Test Profile",
+        "id": "test-id",
+        "temperature": 90.0,
+        "stages": [
+            {
+                "name": "Single Point Curve",
+                "key": "stage_1",
+                "type": "flow",
+                "dynamics": {
+                    "points": [[0, 4]],  # Only 1 point with curve
+                    "over": "time",
+                    "interpolation": "curve",
+                },
+                "exit_triggers": [{"type": "time", "value": 30, "relative": True}],
+                "limits": [],
+            }
+        ],
+    }
+    is_valid, errors = validator.validate(profile)
+    assert not is_valid
+    assert any("curve" in e.lower() and "2 point" in e.lower() for e in errors)
+
+
+def test_validate_curve_interpolation_with_two_points_passes(validator):
+    """Test validation passes when curve interpolation has 2+ points."""
+    profile = {
+        "name": "Test Profile",
+        "id": "test-id",
+        "temperature": 90.0,
+        "stages": [
+            {
+                "name": "Multi Point Curve",
+                "key": "stage_1",
+                "type": "flow",
+                "dynamics": {
+                    "points": [[0, 4], [10, 6]],  # 2 points - OK for curve
+                    "over": "time",
+                    "interpolation": "curve",
+                },
+                "exit_triggers": [{"type": "time", "value": 30, "relative": True}],
+                "limits": [],
+            }
+        ],
+    }
+    is_valid, errors = validator.validate(profile)
+    curve_errors = [e for e in errors if "curve" in e.lower() and "2 point" in e.lower()]
+    assert len(curve_errors) == 0
+
+
+def test_validate_invalid_dynamics_over_fails(validator):
+    """Test validation fails for invalid dynamics.over values."""
+    profile = {
+        "name": "Test Profile",
+        "id": "test-id",
+        "temperature": 90.0,
+        "stages": [
+            {
+                "name": "Invalid Over",
+                "key": "stage_1",
+                "type": "flow",
+                "dynamics": {
+                    "points": [[0, 4]],
+                    "over": "invalid_value",  # Invalid
+                    "interpolation": "linear",
+                },
+                "exit_triggers": [{"type": "time", "value": 30, "relative": True}],
+                "limits": [],
+            }
+        ],
+    }
+    is_valid, errors = validator.validate(profile)
+    assert not is_valid
+    assert any("dynamics.over" in e.lower() and "invalid_value" in e for e in errors)
+
+
+def test_validate_valid_dynamics_over_passes(validator):
+    """Test validation passes for valid dynamics.over values."""
+    for over_value in ["time", "weight", "piston_position"]:
+        profile = {
+            "name": "Test Profile",
+            "id": "test-id",
+            "temperature": 90.0,
+            "stages": [
+                {
+                    "name": f"Stage with {over_value}",
+                    "key": "stage_1",
+                    "type": "flow",
+                    "dynamics": {
+                        "points": [[0, 4]],
+                        "over": over_value,
+                        "interpolation": "linear",
+                    },
+                    "exit_triggers": [{"type": "time", "value": 30, "relative": True}],
+                    "limits": [],
+                }
+            ],
+        }
+        is_valid, errors = validator.validate(profile)
+        over_errors = [e for e in errors if "dynamics.over" in e.lower()]
+        assert len(over_errors) == 0
+
+
+def test_validate_invalid_stage_type_fails(validator):
+    """Test validation fails for invalid stage types."""
+    profile = {
+        "name": "Test Profile",
+        "id": "test-id",
+        "temperature": 90.0,
+        "stages": [
+            {
+                "name": "Invalid Type",
+                "key": "stage_1",
+                "type": "invalid_type",  # Invalid
+                "dynamics": {
+                    "points": [[0, 4]],
+                    "over": "time",
+                    "interpolation": "linear",
+                },
+                "exit_triggers": [{"type": "time", "value": 30, "relative": True}],
+                "limits": [],
+            }
+        ],
+    }
+    is_valid, errors = validator.validate(profile)
+    assert not is_valid
+    assert any("invalid type" in e.lower() and "invalid_type" in e for e in errors)
+
+
+def test_validate_valid_stage_types_pass(validator):
+    """Test validation passes for valid stage types."""
+    for stage_type in ["power", "flow", "pressure"]:
+        profile = {
+            "name": "Test Profile",
+            "id": "test-id",
+            "temperature": 90.0,
+            "stages": [
+                {
+                    "name": f"Stage with {stage_type}",
+                    "key": "stage_1",
+                    "type": stage_type,
+                    "dynamics": {
+                        "points": [[0, 4]],
+                        "over": "time",
+                        "interpolation": "linear",
+                    },
+                    "exit_triggers": [{"type": "time", "value": 30, "relative": True}],
+                    "limits": [],
+                }
+            ],
+        }
+        is_valid, errors = validator.validate(profile)
+        type_errors = [e for e in errors if "invalid type" in e.lower()]
+        assert len(type_errors) == 0
+
+
+def test_validate_invalid_exit_trigger_type_fails(validator):
+    """Test validation fails for invalid exit trigger types."""
+    profile = {
+        "name": "Test Profile",
+        "id": "test-id",
+        "temperature": 90.0,
+        "stages": [
+            {
+                "name": "Invalid Trigger",
+                "key": "stage_1",
+                "type": "flow",
+                "dynamics": {
+                    "points": [[0, 4]],
+                    "over": "time",
+                    "interpolation": "linear",
+                },
+                "exit_triggers": [{"type": "invalid_trigger", "value": 30}],
+                "limits": [],
+            }
+        ],
+    }
+    is_valid, errors = validator.validate(profile)
+    assert not is_valid
+    assert any("exit trigger" in e.lower() and "invalid_trigger" in e for e in errors)
+
+
+def test_validate_valid_exit_trigger_types_pass(validator):
+    """Test validation passes for valid exit trigger types."""
+    valid_types = ["weight", "pressure", "flow", "time", "piston_position", "power", "user_interaction"]
+    for trigger_type in valid_types:
+        profile = {
+            "name": "Test Profile",
+            "id": "test-id",
+            "temperature": 90.0,
+            "stages": [
+                {
+                    "name": f"Stage with {trigger_type}",
+                    "key": "stage_1",
+                    "type": "flow",
+                    "dynamics": {
+                        "points": [[0, 4]],
+                        "over": "time",
+                        "interpolation": "linear",
+                    },
+                    "exit_triggers": [{"type": trigger_type, "value": 30, "relative": True}],
+                    "limits": [],
+                }
+            ],
+        }
+        is_valid, errors = validator.validate(profile)
+        trigger_errors = [e for e in errors if "exit trigger" in e.lower() and "invalid" in e.lower()]
+        assert len(trigger_errors) == 0
+
+
+def test_validate_invalid_comparison_fails(validator):
+    """Test validation fails for invalid comparison operators."""
+    profile = {
+        "name": "Test Profile",
+        "id": "test-id",
+        "temperature": 90.0,
+        "stages": [
+            {
+                "name": "Invalid Comparison",
+                "key": "stage_1",
+                "type": "flow",
+                "dynamics": {
+                    "points": [[0, 4]],
+                    "over": "time",
+                    "interpolation": "linear",
+                },
+                "exit_triggers": [{"type": "time", "value": 30, "comparison": "=="}],  # Invalid
+                "limits": [],
+            }
+        ],
+    }
+    is_valid, errors = validator.validate(profile)
+    assert not is_valid
+    assert any("comparison" in e.lower() and "==" in e for e in errors)
+
+
+def test_validate_valid_comparisons_pass(validator):
+    """Test validation passes for valid comparison operators."""
+    for comparison in [">=", "<="]:
+        profile = {
+            "name": "Test Profile",
+            "id": "test-id",
+            "temperature": 90.0,
+            "stages": [
+                {
+                    "name": f"Stage with {comparison}",
+                    "key": "stage_1",
+                    "type": "flow",
+                    "dynamics": {
+                        "points": [[0, 4]],
+                        "over": "time",
+                        "interpolation": "linear",
+                    },
+                    "exit_triggers": [{"type": "time", "value": 30, "comparison": comparison, "relative": True}],
+                    "limits": [],
+                }
+            ],
+        }
+        is_valid, errors = validator.validate(profile)
+        comparison_errors = [e for e in errors if "comparison" in e.lower() and "invalid" in e.lower()]
+        assert len(comparison_errors) == 0
+
+
+def test_validate_invalid_limit_type_fails(validator):
+    """Test validation fails for invalid limit types."""
+    profile = {
+        "name": "Test Profile",
+        "id": "test-id",
+        "temperature": 90.0,
+        "stages": [
+            {
+                "name": "Invalid Limit",
+                "key": "stage_1",
+                "type": "flow",
+                "dynamics": {
+                    "points": [[0, 4]],
+                    "over": "time",
+                    "interpolation": "linear",
+                },
+                "exit_triggers": [{"type": "time", "value": 30, "relative": True}],
+                "limits": [{"type": "invalid_limit", "value": 10}],
+            }
+        ],
+    }
+    is_valid, errors = validator.validate(profile)
+    assert not is_valid
+    assert any("limit" in e.lower() and "invalid_limit" in e for e in errors)
+
+
+def test_validate_valid_limit_types_pass(validator):
+    """Test validation passes for valid limit types."""
+    for limit_type in ["pressure", "flow"]:
+        profile = {
+            "name": "Test Profile",
+            "id": "test-id",
+            "temperature": 90.0,
+            "stages": [
+                {
+                    "name": f"Stage with {limit_type} limit",
+                    "key": "stage_1",
+                    "type": "flow",
+                    "dynamics": {
+                        "points": [[0, 4]],
+                        "over": "time",
+                        "interpolation": "linear",
+                    },
+                    "exit_triggers": [{"type": "time", "value": 30, "relative": True}],
+                    "limits": [{"type": limit_type, "value": 10}],
+                }
+            ],
+        }
+        is_valid, errors = validator.validate(profile)
+        limit_errors = [e for e in errors if "limit" in e.lower() and "invalid" in e.lower()]
+        assert len(limit_errors) == 0
+
