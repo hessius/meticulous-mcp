@@ -481,7 +481,8 @@ def test_profile_to_dict_normalizes_relative():
     # With normalization (default)
     profile_dict = profile_to_dict(profile, normalize=True)
     assert "relative" in profile_dict["stages"][0]["exit_triggers"][0]
-    assert profile_dict["stages"][0]["exit_triggers"][0]["relative"] is False
+    # Time triggers default to relative=True (relative to stage start)
+    assert profile_dict["stages"][0]["exit_triggers"][0]["relative"] is True
     
     # Without normalization
     profile_dict_no_norm = profile_to_dict(profile, normalize=False)
@@ -514,7 +515,8 @@ def test_profile_to_dict_normalizes_both():
     
     # Both should be normalized
     assert stage_dict["limits"] == []
-    assert stage_dict["exit_triggers"][0]["relative"] is False
+    # Time triggers default to relative=True (relative to stage start)
+    assert stage_dict["exit_triggers"][0]["relative"] is True
 
 
 def test_normalize_profile_with_none_limits():
@@ -558,10 +560,10 @@ def test_normalize_profile_with_missing_relative():
     )
     
     normalized = normalize_profile(profile)
-    # After normalization, relative should be False
+    # After normalization, time triggers get relative=True (relative to stage start)
     # But Pydantic might exclude None, so check via dict
     normalized_dict = profile_to_dict(normalized, normalize=True)
-    assert normalized_dict["stages"][0]["exit_triggers"][0]["relative"] is False
+    assert normalized_dict["stages"][0]["exit_triggers"][0]["relative"] is True
 
 
 def test_normalize_profile_preserves_existing_values():
