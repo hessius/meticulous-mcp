@@ -142,6 +142,10 @@ class ProfileValidator:
         required_limit_errors = self._validate_required_limits(profile)
         errors.extend(required_limit_errors)
         
+        # Add validation for absolute weight trigger consistency across stages
+        weight_trigger_errors = self._validate_absolute_weight_triggers(profile)
+        errors.extend(weight_trigger_errors)
+        
         return len(errors) == 0, errors
 
     def validate_and_raise(self, profile: Dict[str, Any]) -> None:
@@ -565,6 +569,62 @@ class ProfileValidator:
         
         return errors
 
+    def _validate_absolute_weight_triggers(self, profile: Dict[str, Any]) -> List[str]:
+        """Validate that absolute weight triggers are strictly increasing across stages.
+        
+        If Stage N exits at absolute weight X, and Stage N+1 has absolute weight trigger Y,
+        then Y must be > X, otherwise the trigger will fire immediately.
+        
+        Args:
+            profile: Profile dictionary to validate
+            
+        Returns:
+            List of validation errors
+        """
+        errors = []
+        
+        if "stages" not in profile or not isinstance(profile["stages"], list):
+            return errors
+        
+        stages = profile["stages"]
+        
+        # Track the maximum absolute weight trigger seen so far
+        max_absolute_weight = 0.0
+        max_weight_stage_name = None
+        
+        for i, stage in enumerate(stages):
+            if not isinstance(stage, dict):
+                continue
+            
+            stage_name = stage.get("name", f"Stage {i+1}")
+            exit_triggers = stage.get("exit_triggers", [])
+            
+            # Find absolute weight triggers in this stage
+            for trigger in exit_triggers:
+                if not isinstance(trigger, dict):
+                    continue
+                
+                trigger_type = trigger.get("type")
+                trigger_value = trigger.get("value")
+                is_relative = trigger.get("relative", False)
+                
+                if trigger_type == "weight" and not is_relative and isinstance(trigger_value, (int, float)):
+                    # This is an absolute weight trigger
+                    if trigger_value <= max_absolute_weight and max_weight_stage_name is not None:
+                        errors.append(
+                            f"Stage '{stage_name}' has absolute weight trigger ({trigger_value}g) that is <= "
+                            f"the previous stage '{max_weight_stage_name}' weight trigger ({max_absolute_weight}g). "
+                            f"This trigger will fire immediately since the scale already shows >= {max_absolute_weight}g. "
+                            f"Use 'relative: true' for stage-specific weight tracking, or increase the weight threshold."
+                        )
+                    
+                    # Update max for next stages
+                    if trigger_value > max_absolute_weight:
+                        max_absolute_weight = trigger_value
+                        max_weight_stage_name = stage_name
+        
+        return errors
+
     def _format_error(self, error: ValidationError) -> str:
         """Format a validation error into a readable message.
         
@@ -713,6 +773,38 @@ class ProfileValidator:
                         has_weight_trigger = any(et.get("type") == "weight" for et in exit_triggers if isinstance(et, dict))
                         if not has_weight_trigger:
                             warnings.append(f"Stage '{stage_name}' is a pre-infusion stage without a weight-based exit trigger. Consider adding 'weight >= 3-5g' to detect early dripping and adapt to grind variations.")
+                    
+                    # Check for bloom/soak/hold stages that should use relative triggers
+                    is_bloom_stage = any(term in stage_name_lower for term in 
+                                         ["bloom", "soak", "hold", "rest", "pause", "wait"])
+                    if is_bloom_stage and i > 0:  # Only warn for non-first stages
+                        # Check if any exit triggers are absolute (relative=false)
+                        has_absolute_trigger = False
+                        for trigger in exit_triggers:
+                            if isinstance(trigger, dict):
+                                if not trigger.get("relative", False):
+                                    has_absolute_trigger = True
+                                    break
+                        if has_absolute_trigger:
+                            warnings.append(
+                                f"Stage '{stage_name}' appears to be a bloom/rest stage but uses absolute exit triggers. "
+                                f"Consider using 'relative: true' for exit triggers so the stage duration is independent of previous stages."
+                            )
+                    
+                    # Check for low absolute weight triggers in non-first stages
+                    if i > 0:  # Not the first stage
+                        for trigger in exit_triggers:
+                            if isinstance(trigger, dict):
+                                trigger_type = trigger.get("type")
+                                trigger_value = trigger.get("value")
+                                is_relative = trigger.get("relative", False)
+                                if trigger_type == "weight" and not is_relative and isinstance(trigger_value, (int, float)):
+                                    if trigger_value < 10:
+                                        warnings.append(
+                                            f"Stage '{stage_name}' (stage {i+1}) has a low absolute weight trigger ({trigger_value}g). "
+                                            f"If preceding stages have weight-based exits, this may fire immediately. "
+                                            f"Consider using 'relative: true' for stage-specific weight tracking."
+                                        )
         
         # Check temperature range
         if "temperature" in profile:
