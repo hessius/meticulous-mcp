@@ -1681,3 +1681,174 @@ def test_validate_preinfusion_recommends_lower_pressure(validator):
     # Should recommend 3 bar for pre-infusion
     assert any("3 bar" in e for e in errors)
 
+
+# ==================== Absolute Weight Trigger Tests ====================
+
+def test_validate_absolute_weight_decreasing_fails(validator):
+    """Test validation fails when absolute weight trigger decreases across stages."""
+    profile = {
+        "name": "Test Profile",
+        "id": "test-id",
+        "temperature": 90.0,
+        "stages": [
+            {
+                "name": "Saturation",
+                "key": "stage_1",
+                "type": "flow",
+                "dynamics": {"points": [[0, 3]], "over": "time", "interpolation": "linear"},
+                "exit_triggers": [
+                    {"type": "weight", "value": 5, "relative": False, "comparison": ">="},
+                    {"type": "time", "value": 30, "relative": True}
+                ],
+                "limits": [{"type": "pressure", "value": 3}],
+            },
+            {
+                "name": "Bloom",
+                "key": "stage_2",
+                "type": "flow",
+                "dynamics": {"points": [[0, 0]], "over": "time", "interpolation": "linear"},
+                "exit_triggers": [
+                    {"type": "weight", "value": 1, "relative": False, "comparison": ">="},  # Lower than previous!
+                    {"type": "time", "value": 10, "relative": True}
+                ],
+                "limits": [{"type": "pressure", "value": 3}],
+            },
+        ],
+    }
+    is_valid, errors = validator.validate(profile)
+    assert not is_valid
+    assert any("absolute weight trigger" in e.lower() and "fire immediately" in e.lower() for e in errors)
+
+
+def test_validate_absolute_weight_increasing_passes(validator):
+    """Test validation passes when absolute weight triggers increase across stages."""
+    profile = {
+        "name": "Test Profile",
+        "id": "test-id",
+        "temperature": 90.0,
+        "stages": [
+            {
+                "name": "Pre-infusion",
+                "key": "stage_1",
+                "type": "flow",
+                "dynamics": {"points": [[0, 3]], "over": "time", "interpolation": "linear"},
+                "exit_triggers": [
+                    {"type": "weight", "value": 5, "relative": False, "comparison": ">="},
+                    {"type": "time", "value": 30, "relative": True}
+                ],
+                "limits": [{"type": "pressure", "value": 3}],
+            },
+            {
+                "name": "Extraction",
+                "key": "stage_2",
+                "type": "flow",
+                "dynamics": {"points": [[0, 4]], "over": "time", "interpolation": "linear"},
+                "exit_triggers": [
+                    {"type": "weight", "value": 36, "relative": False, "comparison": ">="},  # Higher - OK
+                    {"type": "time", "value": 45, "relative": True}
+                ],
+                "limits": [{"type": "pressure", "value": 10}],
+            },
+        ],
+    }
+    is_valid, errors = validator.validate(profile)
+    weight_errors = [e for e in errors if "absolute weight trigger" in e.lower()]
+    assert len(weight_errors) == 0
+
+
+def test_validate_relative_weight_triggers_no_conflict(validator):
+    """Test validation passes when using relative weight triggers."""
+    profile = {
+        "name": "Test Profile",
+        "id": "test-id",
+        "temperature": 90.0,
+        "stages": [
+            {
+                "name": "Pre-infusion",
+                "key": "stage_1",
+                "type": "flow",
+                "dynamics": {"points": [[0, 3]], "over": "time", "interpolation": "linear"},
+                "exit_triggers": [
+                    {"type": "weight", "value": 5, "relative": False, "comparison": ">="},
+                    {"type": "time", "value": 30, "relative": True}
+                ],
+                "limits": [{"type": "pressure", "value": 3}],
+            },
+            {
+                "name": "Bloom",
+                "key": "stage_2",
+                "type": "flow",
+                "dynamics": {"points": [[0, 0]], "over": "time", "interpolation": "linear"},
+                "exit_triggers": [
+                    {"type": "weight", "value": 1, "relative": True, "comparison": ">="},  # Relative - OK
+                    {"type": "time", "value": 10, "relative": True}
+                ],
+                "limits": [{"type": "pressure", "value": 3}],
+            },
+        ],
+    }
+    is_valid, errors = validator.validate(profile)
+    weight_errors = [e for e in errors if "absolute weight trigger" in e.lower()]
+    assert len(weight_errors) == 0
+
+
+def test_lint_bloom_stage_with_absolute_triggers_warns(validator):
+    """Test linting warns when bloom/rest stages use absolute triggers."""
+    profile = {
+        "name": "Test Profile",
+        "id": "test-id",
+        "temperature": 90.0,
+        "stages": [
+            {
+                "name": "Fill",
+                "key": "stage_1",
+                "type": "flow",
+                "dynamics": {"points": [[0, 3]], "over": "time", "interpolation": "linear"},
+                "exit_triggers": [{"type": "time", "value": 10, "relative": True}],
+                "limits": [{"type": "pressure", "value": 3}],
+            },
+            {
+                "name": "The Bloom Room",  # "bloom" in name
+                "key": "stage_2",
+                "type": "flow",
+                "dynamics": {"points": [[0, 0]], "over": "time", "interpolation": "linear"},
+                "exit_triggers": [{"type": "time", "value": 15, "relative": False}],  # Absolute
+                "limits": [{"type": "pressure", "value": 3}],
+            },
+        ],
+    }
+    warnings = validator.lint(profile)
+    assert any("bloom" in w.lower() and "relative" in w.lower() for w in warnings)
+
+
+def test_lint_low_absolute_weight_in_later_stage_warns(validator):
+    """Test linting warns about low absolute weight triggers in non-first stages."""
+    profile = {
+        "name": "Test Profile",
+        "id": "test-id",
+        "temperature": 90.0,
+        "stages": [
+            {
+                "name": "First Stage",
+                "key": "stage_1",
+                "type": "flow",
+                "dynamics": {"points": [[0, 3]], "over": "time", "interpolation": "linear"},
+                "exit_triggers": [{"type": "time", "value": 10, "relative": True}],
+                "limits": [{"type": "pressure", "value": 3}],
+            },
+            {
+                "name": "Second Stage",
+                "key": "stage_2",
+                "type": "flow",
+                "dynamics": {"points": [[0, 4]], "over": "time", "interpolation": "linear"},
+                "exit_triggers": [
+                    {"type": "weight", "value": 5, "relative": False},  # Low absolute in stage 2
+                    {"type": "time", "value": 30, "relative": True}
+                ],
+                "limits": [{"type": "pressure", "value": 10}],
+            },
+        ],
+    }
+    warnings = validator.lint(profile)
+    assert any("low absolute weight" in w.lower() and "5g" in w for w in warnings)
+
