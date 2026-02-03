@@ -130,6 +130,18 @@ class ProfileValidator:
         limit_errors = self._validate_limits(profile)
         errors.extend(limit_errors)
         
+        # Add validation for exit trigger type matching stage type (paradox check)
+        exit_stage_match_errors = self._validate_exit_trigger_matches_stage_type(profile)
+        errors.extend(exit_stage_match_errors)
+        
+        # Add validation for backup exit triggers (failsafe check)
+        backup_trigger_errors = self._validate_backup_exit_triggers(profile)
+        errors.extend(backup_trigger_errors)
+        
+        # Add validation for required safety limits
+        required_limit_errors = self._validate_required_limits(profile)
+        errors.extend(required_limit_errors)
+        
         return len(errors) == 0, errors
 
     def validate_and_raise(self, profile: Dict[str, Any]) -> None:
@@ -401,6 +413,158 @@ class ProfileValidator:
         
         return errors
 
+    def _validate_exit_trigger_matches_stage_type(self, profile: Dict[str, Any]) -> List[str]:
+        """Validate that exit trigger types don't match the stage control type.
+        
+        If a stage controls flow, it should not have a flow exit trigger as the primary trigger.
+        If a stage controls pressure, it should not have a pressure exit trigger.
+        This creates a paradox where grind variations mean the trigger may never fire.
+        
+        Args:
+            profile: Profile dictionary to validate
+            
+        Returns:
+            List of validation errors
+        """
+        errors = []
+        
+        if "stages" not in profile or not isinstance(profile["stages"], list):
+            return errors
+        
+        for i, stage in enumerate(profile["stages"]):
+            if not isinstance(stage, dict):
+                continue
+            
+            stage_name = stage.get("name", f"Stage {i+1}")
+            stage_type = stage.get("type")
+            exit_triggers = stage.get("exit_triggers", [])
+            
+            if not stage_type or not exit_triggers:
+                continue
+            
+            # Check if any exit trigger has the same type as the stage control
+            for trigger_idx, trigger in enumerate(exit_triggers):
+                if not isinstance(trigger, dict):
+                    continue
+                
+                trigger_type = trigger.get("type")
+                
+                # Check for matching types (flow stage with flow trigger, pressure stage with pressure trigger)
+                if trigger_type == stage_type and stage_type in ("flow", "pressure"):
+                    errors.append(
+                        f"Stage '{stage_name}' is a '{stage_type}' control stage but has a '{trigger_type}' exit trigger. "
+                        f"This is problematic - if you're controlling {stage_type}, you can't reliably exit based on {trigger_type} "
+                        f"since it's what you're already controlling. Use a different trigger type like 'time', 'weight', or "
+                        f"'{('pressure' if stage_type == 'flow' else 'flow')}'."
+                    )
+        
+        return errors
+
+    def _validate_backup_exit_triggers(self, profile: Dict[str, Any]) -> List[str]:
+        """Validate that every stage has a backup/failsafe exit trigger.
+        
+        Every stage should have either:
+        - Multiple exit triggers (OR logic provides failsafe)
+        - At least one time-based trigger (universal failsafe)
+        
+        This prevents shots from stalling indefinitely if grind is wrong.
+        
+        Args:
+            profile: Profile dictionary to validate
+            
+        Returns:
+            List of validation errors
+        """
+        errors = []
+        
+        if "stages" not in profile or not isinstance(profile["stages"], list):
+            return errors
+        
+        for i, stage in enumerate(profile["stages"]):
+            if not isinstance(stage, dict):
+                continue
+            
+            stage_name = stage.get("name", f"Stage {i+1}")
+            exit_triggers = stage.get("exit_triggers", [])
+            
+            if not exit_triggers:
+                # Already caught by other validation
+                continue
+            
+            # Count valid triggers and check for time trigger
+            valid_triggers = [t for t in exit_triggers if isinstance(t, dict) and t.get("type")]
+            has_time_trigger = any(t.get("type") == "time" for t in valid_triggers)
+            
+            # Must have either multiple triggers OR a time trigger
+            if len(valid_triggers) == 1 and not has_time_trigger:
+                trigger_type = valid_triggers[0].get("type", "unknown")
+                errors.append(
+                    f"Stage '{stage_name}' has only one exit trigger ('{trigger_type}') with no time-based failsafe. "
+                    f"Every stage must have a backup exit condition to prevent indefinite stalls. "
+                    f"Add a time-based trigger (e.g., 'time >= 45s') as a failsafe, or add a second trigger like 'weight'."
+                )
+        
+        return errors
+
+    def _validate_required_limits(self, profile: Dict[str, Any]) -> List[str]:
+        """Validate that every stage has required safety limits.
+        
+        Flow stages must have a pressure limit to prevent machine stall at high pressure.
+        Pressure stages must have a flow limit to prevent gusher shots.
+        
+        Args:
+            profile: Profile dictionary to validate
+            
+        Returns:
+            List of validation errors
+        """
+        errors = []
+        
+        if "stages" not in profile or not isinstance(profile["stages"], list):
+            return errors
+        
+        for i, stage in enumerate(profile["stages"]):
+            if not isinstance(stage, dict):
+                continue
+            
+            stage_name = stage.get("name", f"Stage {i+1}")
+            stage_type = stage.get("type")
+            limits = stage.get("limits", [])
+            
+            if not stage_type:
+                continue
+            
+            # Get limit types present
+            limit_types = set()
+            if isinstance(limits, list):
+                for limit in limits:
+                    if isinstance(limit, dict) and limit.get("type"):
+                        limit_types.add(limit.get("type"))
+            
+            # Determine if this is a pre-infusion stage (for different pressure limit recommendations)
+            stage_name_lower = stage_name.lower()
+            is_preinfusion = any(term in stage_name_lower for term in 
+                                 ["pre-infusion", "preinfusion", "fill", "bloom", "soak", "pre infusion"])
+            
+            # Flow stages need pressure limits
+            if stage_type == "flow" and "pressure" not in limit_types:
+                recommended_limit = "3 bar" if is_preinfusion else "10 bar"
+                errors.append(
+                    f"Stage '{stage_name}' is a 'flow' control stage but has no pressure limit. "
+                    f"This is dangerous - if the grind is too fine, pressure could spike to 12+ bar and stall. "
+                    f"Add a pressure limit (recommended: {recommended_limit} for {'pre-infusion' if is_preinfusion else 'extraction'} stages)."
+                )
+            
+            # Pressure stages need flow limits
+            if stage_type == "pressure" and "flow" not in limit_types:
+                errors.append(
+                    f"Stage '{stage_name}' is a 'pressure' control stage but has no flow limit. "
+                    f"This can cause gusher shots if the grind is too coarse. "
+                    f"Add a flow limit (recommended: 5 ml/s)."
+                )
+        
+        return errors
+
     def _format_error(self, error: ValidationError) -> str:
         """Format a validation error into a readable message.
         
@@ -511,6 +675,44 @@ class ProfileValidator:
                         prev_keys = [s.get("key") for s in stages[:i] if isinstance(s, dict)]
                         if stage_key in prev_keys:
                             warnings.append(f"Stage '{stage_name}' has duplicate key '{stage_key}' - stage keys should be unique")
+                    
+                    # Check limit values for sensible bounds
+                    limits = stage.get("limits", [])
+                    if isinstance(limits, list):
+                        for limit in limits:
+                            if not isinstance(limit, dict):
+                                continue
+                            limit_type = limit.get("type")
+                            limit_value = limit.get("value")
+                            if isinstance(limit_value, (int, float)):
+                                if limit_type == "pressure":
+                                    if limit_value < 0:
+                                        warnings.append(f"Stage '{stage_name}' has negative pressure limit ({limit_value} bar) - should be >= 0")
+                                    elif limit_value > 12:
+                                        warnings.append(f"Stage '{stage_name}' has very high pressure limit ({limit_value} bar) - consider lowering to 10-12 bar for safety")
+                                elif limit_type == "flow":
+                                    if limit_value < 0:
+                                        warnings.append(f"Stage '{stage_name}' has negative flow limit ({limit_value} ml/s) - should be >= 0")
+                                    elif limit_value > 8:
+                                        warnings.append(f"Stage '{stage_name}' has very high flow limit ({limit_value} ml/s) - consider lowering to 5-6 ml/s for better control")
+                    
+                    # Pre-infusion specific recommendations
+                    stage_name_lower = stage_name.lower()
+                    is_preinfusion = any(term in stage_name_lower for term in 
+                                         ["pre-infusion", "preinfusion", "fill", "bloom", "soak", "pre infusion"])
+                    if is_preinfusion:
+                        # Check for high pressure limits on pre-infusion stages
+                        if isinstance(limits, list):
+                            for limit in limits:
+                                if isinstance(limit, dict) and limit.get("type") == "pressure":
+                                    limit_value = limit.get("value")
+                                    if isinstance(limit_value, (int, float)) and limit_value > 4:
+                                        warnings.append(f"Stage '{stage_name}' is a pre-infusion stage with pressure limit of {limit_value} bar - consider lowering to 3-4 bar for gentler saturation")
+                        
+                        # Check for weight-based early exit (adaptive pre-infusion)
+                        has_weight_trigger = any(et.get("type") == "weight" for et in exit_triggers if isinstance(et, dict))
+                        if not has_weight_trigger:
+                            warnings.append(f"Stage '{stage_name}' is a pre-infusion stage without a weight-based exit trigger. Consider adding 'weight >= 3-5g' to detect early dripping and adapt to grind variations.")
         
         # Check temperature range
         if "temperature" in profile:

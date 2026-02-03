@@ -903,7 +903,7 @@ def test_validate_interpolation_linear_passes(validator):
                     "interpolation": "linear",
                 },
                 "exit_triggers": [{"type": "time", "value": 30, "relative": True}],
-                "limits": [],
+                "limits": [{"type": "pressure", "value": 10}],
             }
         ],
     }
@@ -929,7 +929,7 @@ def test_validate_interpolation_curve_passes(validator):
                     "interpolation": "curve",
                 },
                 "exit_triggers": [{"type": "time", "value": 30, "relative": True}],
-                "limits": [],
+                "limits": [{"type": "pressure", "value": 10}],
             }
         ],
     }
@@ -1381,4 +1381,303 @@ def test_validate_redundant_pressure_limit_on_pressure_stage_fails(validator):
     is_valid, errors = validator.validate(profile)
     assert not is_valid
     assert any("redundant" in e.lower() and "pressure" in e.lower() for e in errors)
+
+
+# ==================== Exit Trigger Matches Stage Type Tests ====================
+
+def test_validate_flow_stage_with_flow_exit_trigger_fails(validator):
+    """Test validation fails when flow stage has flow exit trigger."""
+    profile = {
+        "name": "Test Profile",
+        "id": "test-id",
+        "temperature": 90.0,
+        "stages": [
+            {
+                "name": "Flow Stage",
+                "key": "stage_1",
+                "type": "flow",
+                "dynamics": {
+                    "points": [[0, 4]],
+                    "over": "time",
+                    "interpolation": "linear",
+                },
+                "exit_triggers": [{"type": "flow", "value": 3, "relative": True}],
+                "limits": [{"type": "pressure", "value": 10}],
+            }
+        ],
+    }
+    is_valid, errors = validator.validate(profile)
+    assert not is_valid
+    assert any("flow" in e.lower() and "control stage" in e.lower() and "exit trigger" in e.lower() for e in errors)
+
+
+def test_validate_pressure_stage_with_pressure_exit_trigger_fails(validator):
+    """Test validation fails when pressure stage has pressure exit trigger."""
+    profile = {
+        "name": "Test Profile",
+        "id": "test-id",
+        "temperature": 90.0,
+        "stages": [
+            {
+                "name": "Pressure Stage",
+                "key": "stage_1",
+                "type": "pressure",
+                "dynamics": {
+                    "points": [[0, 9]],
+                    "over": "time",
+                    "interpolation": "linear",
+                },
+                "exit_triggers": [{"type": "pressure", "value": 9, "relative": True}],
+                "limits": [{"type": "flow", "value": 5}],
+            }
+        ],
+    }
+    is_valid, errors = validator.validate(profile)
+    assert not is_valid
+    assert any("pressure" in e.lower() and "control stage" in e.lower() and "exit trigger" in e.lower() for e in errors)
+
+
+def test_validate_flow_stage_with_weight_exit_trigger_passes(validator):
+    """Test validation passes when flow stage has weight exit trigger."""
+    profile = {
+        "name": "Test Profile",
+        "id": "test-id",
+        "temperature": 90.0,
+        "stages": [
+            {
+                "name": "Flow Stage",
+                "key": "stage_1",
+                "type": "flow",
+                "dynamics": {
+                    "points": [[0, 4]],
+                    "over": "time",
+                    "interpolation": "linear",
+                },
+                "exit_triggers": [
+                    {"type": "weight", "value": 36, "relative": True},
+                    {"type": "time", "value": 45, "relative": True}
+                ],
+                "limits": [{"type": "pressure", "value": 10}],
+            }
+        ],
+    }
+    is_valid, errors = validator.validate(profile)
+    stage_trigger_errors = [e for e in errors if "control stage" in e.lower() and "exit trigger" in e.lower()]
+    assert len(stage_trigger_errors) == 0
+
+
+# ==================== Backup Exit Trigger Tests ====================
+
+def test_validate_single_non_time_trigger_fails(validator):
+    """Test validation fails when stage has only one non-time exit trigger."""
+    profile = {
+        "name": "Test Profile",
+        "id": "test-id",
+        "temperature": 90.0,
+        "stages": [
+            {
+                "name": "Flow Stage",
+                "key": "stage_1",
+                "type": "flow",
+                "dynamics": {
+                    "points": [[0, 4]],
+                    "over": "time",
+                    "interpolation": "linear",
+                },
+                "exit_triggers": [{"type": "weight", "value": 36, "relative": True}],  # Only weight, no time backup
+                "limits": [{"type": "pressure", "value": 10}],
+            }
+        ],
+    }
+    is_valid, errors = validator.validate(profile)
+    assert not is_valid
+    assert any("backup" in e.lower() or "failsafe" in e.lower() for e in errors)
+
+
+def test_validate_single_time_trigger_passes(validator):
+    """Test validation passes when stage has only time trigger (it's a failsafe itself)."""
+    profile = {
+        "name": "Test Profile",
+        "id": "test-id",
+        "temperature": 90.0,
+        "stages": [
+            {
+                "name": "Timed Stage",
+                "key": "stage_1",
+                "type": "flow",
+                "dynamics": {
+                    "points": [[0, 4]],
+                    "over": "time",
+                    "interpolation": "linear",
+                },
+                "exit_triggers": [{"type": "time", "value": 30, "relative": True}],
+                "limits": [{"type": "pressure", "value": 10}],
+            }
+        ],
+    }
+    is_valid, errors = validator.validate(profile)
+    backup_errors = [e for e in errors if "backup" in e.lower() or "failsafe" in e.lower()]
+    assert len(backup_errors) == 0
+
+
+def test_validate_multiple_triggers_passes(validator):
+    """Test validation passes when stage has multiple exit triggers."""
+    profile = {
+        "name": "Test Profile",
+        "id": "test-id",
+        "temperature": 90.0,
+        "stages": [
+            {
+                "name": "Multi-Trigger Stage",
+                "key": "stage_1",
+                "type": "flow",
+                "dynamics": {
+                    "points": [[0, 4]],
+                    "over": "time",
+                    "interpolation": "linear",
+                },
+                "exit_triggers": [
+                    {"type": "weight", "value": 36, "relative": True},
+                    {"type": "time", "value": 45, "relative": True}
+                ],
+                "limits": [{"type": "pressure", "value": 10}],
+            }
+        ],
+    }
+    is_valid, errors = validator.validate(profile)
+    backup_errors = [e for e in errors if "backup" in e.lower() or "failsafe" in e.lower()]
+    assert len(backup_errors) == 0
+
+
+# ==================== Required Limits Tests ====================
+
+def test_validate_flow_stage_without_pressure_limit_fails(validator):
+    """Test validation fails when flow stage has no pressure limit."""
+    profile = {
+        "name": "Test Profile",
+        "id": "test-id",
+        "temperature": 90.0,
+        "stages": [
+            {
+                "name": "Flow Stage",
+                "key": "stage_1",
+                "type": "flow",
+                "dynamics": {
+                    "points": [[0, 4]],
+                    "over": "time",
+                    "interpolation": "linear",
+                },
+                "exit_triggers": [{"type": "time", "value": 30, "relative": True}],
+                "limits": [],  # No pressure limit!
+            }
+        ],
+    }
+    is_valid, errors = validator.validate(profile)
+    assert not is_valid
+    assert any("flow" in e.lower() and "pressure limit" in e.lower() for e in errors)
+
+
+def test_validate_pressure_stage_without_flow_limit_fails(validator):
+    """Test validation fails when pressure stage has no flow limit."""
+    profile = {
+        "name": "Test Profile",
+        "id": "test-id",
+        "temperature": 90.0,
+        "stages": [
+            {
+                "name": "Pressure Stage",
+                "key": "stage_1",
+                "type": "pressure",
+                "dynamics": {
+                    "points": [[0, 9]],
+                    "over": "time",
+                    "interpolation": "linear",
+                },
+                "exit_triggers": [{"type": "time", "value": 30, "relative": True}],
+                "limits": [],  # No flow limit!
+            }
+        ],
+    }
+    is_valid, errors = validator.validate(profile)
+    assert not is_valid
+    assert any("pressure" in e.lower() and "flow limit" in e.lower() for e in errors)
+
+
+def test_validate_flow_stage_with_pressure_limit_passes(validator):
+    """Test validation passes when flow stage has pressure limit."""
+    profile = {
+        "name": "Test Profile",
+        "id": "test-id",
+        "temperature": 90.0,
+        "stages": [
+            {
+                "name": "Flow Stage",
+                "key": "stage_1",
+                "type": "flow",
+                "dynamics": {
+                    "points": [[0, 4]],
+                    "over": "time",
+                    "interpolation": "linear",
+                },
+                "exit_triggers": [{"type": "time", "value": 30, "relative": True}],
+                "limits": [{"type": "pressure", "value": 10}],
+            }
+        ],
+    }
+    is_valid, errors = validator.validate(profile)
+    limit_errors = [e for e in errors if "pressure limit" in e.lower() or "flow limit" in e.lower()]
+    assert len(limit_errors) == 0
+
+
+def test_validate_pressure_stage_with_flow_limit_passes(validator):
+    """Test validation passes when pressure stage has flow limit."""
+    profile = {
+        "name": "Test Profile",
+        "id": "test-id",
+        "temperature": 90.0,
+        "stages": [
+            {
+                "name": "Pressure Stage",
+                "key": "stage_1",
+                "type": "pressure",
+                "dynamics": {
+                    "points": [[0, 9]],
+                    "over": "time",
+                    "interpolation": "linear",
+                },
+                "exit_triggers": [{"type": "time", "value": 30, "relative": True}],
+                "limits": [{"type": "flow", "value": 5}],
+            }
+        ],
+    }
+    is_valid, errors = validator.validate(profile)
+    limit_errors = [e for e in errors if "pressure limit" in e.lower() or "flow limit" in e.lower()]
+    assert len(limit_errors) == 0
+
+
+def test_validate_preinfusion_recommends_lower_pressure(validator):
+    """Test validation recommends 3 bar for pre-infusion stages."""
+    profile = {
+        "name": "Test Profile",
+        "id": "test-id",
+        "temperature": 90.0,
+        "stages": [
+            {
+                "name": "Pre-infusion",  # Name indicates pre-infusion
+                "key": "stage_1",
+                "type": "flow",
+                "dynamics": {
+                    "points": [[0, 3]],
+                    "over": "time",
+                    "interpolation": "linear",
+                },
+                "exit_triggers": [{"type": "time", "value": 30, "relative": True}],
+                "limits": [],  # Missing pressure limit
+            }
+        ],
+    }
+    is_valid, errors = validator.validate(profile)
+    assert not is_valid
+    # Should recommend 3 bar for pre-infusion
+    assert any("3 bar" in e for e in errors)
 
