@@ -1852,3 +1852,87 @@ def test_lint_low_absolute_weight_in_later_stage_warns(validator):
     warnings = validator.lint(profile)
     assert any("low absolute weight" in w.lower() and "5g" in w for w in warnings)
 
+
+def test_lint_negative_pressure_limit_warns(validator):
+    """Test linting warns about negative pressure limit values."""
+    profile = {
+        "name": "Test Profile",
+        "id": "test-id",
+        "temperature": 90.0,
+        "stages": [
+            {
+                "name": "Extraction",
+                "key": "extraction",
+                "type": "flow",
+                "dynamics": {"points": [[0, 3]], "over": "time", "interpolation": "linear"},
+                "exit_triggers": [{"type": "time", "value": 30, "relative": True}],
+                "limits": [{"type": "pressure", "value": -2}],  # Negative pressure
+            },
+        ],
+    }
+    warnings = validator.lint(profile)
+    assert any("negative pressure limit" in w.lower() and "-2" in w for w in warnings)
+
+
+def test_lint_excessive_pressure_limit_warns(validator):
+    """Test linting warns about pressure limit values above 12 bar."""
+    profile = {
+        "name": "Test Profile",
+        "id": "test-id",
+        "temperature": 90.0,
+        "stages": [
+            {
+                "name": "Extraction",
+                "key": "extraction",
+                "type": "flow",
+                "dynamics": {"points": [[0, 3]], "over": "time", "interpolation": "linear"},
+                "exit_triggers": [{"type": "time", "value": 30, "relative": True}],
+                "limits": [{"type": "pressure", "value": 15}],  # Very high pressure
+            },
+        ],
+    }
+    warnings = validator.lint(profile)
+    assert any("very high pressure limit" in w.lower() and "15" in w for w in warnings)
+
+
+def test_lint_negative_flow_limit_warns(validator):
+    """Test linting warns about negative flow limit values."""
+    profile = {
+        "name": "Test Profile",
+        "id": "test-id",
+        "temperature": 90.0,
+        "stages": [
+            {
+                "name": "Extraction",
+                "key": "extraction",
+                "type": "pressure",
+                "dynamics": {"points": [[0, 9]], "over": "time", "interpolation": "linear"},
+                "exit_triggers": [{"type": "time", "value": 30, "relative": True}],
+                "limits": [{"type": "flow", "value": -1.5}],  # Negative flow
+            },
+        ],
+    }
+    warnings = validator.lint(profile)
+    assert any("negative flow limit" in w.lower() and "-1.5" in w for w in warnings)
+
+
+def test_lint_excessive_flow_limit_warns(validator):
+    """Test linting warns about flow limit values above 8 ml/s."""
+    profile = {
+        "name": "Test Profile",
+        "id": "test-id",
+        "temperature": 90.0,
+        "stages": [
+            {
+                "name": "Extraction",
+                "key": "extraction",
+                "type": "pressure",
+                "dynamics": {"points": [[0, 9]], "over": "time", "interpolation": "linear"},
+                "exit_triggers": [{"type": "time", "value": 30, "relative": True}],
+                "limits": [{"type": "flow", "value": 10}],  # Very high flow
+            },
+        ],
+    }
+    warnings = validator.lint(profile)
+    assert any("very high flow limit" in w.lower() and "10" in w for w in warnings)
+
