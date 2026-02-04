@@ -1852,3 +1852,100 @@ def test_lint_low_absolute_weight_in_later_stage_warns(validator):
     warnings = validator.lint(profile)
     assert any("low absolute weight" in w.lower() and "5g" in w for w in warnings)
 
+
+# ==================== VARIABLES ARRAY REQUIREMENT TESTS ====================
+
+
+def test_lint_missing_variables_array_warns(validator):
+    """Test that missing variables array generates a warning (app compatibility)."""
+    profile = {
+        "name": "Test Profile",
+        "id": "test-id",
+        "temperature": 90.0,
+        "stages": [
+            {
+                "name": "Stage 1",
+                "key": "stage_1",
+                "type": "flow",
+                "dynamics": {"points": [[0, 3]], "over": "time"},
+                "exit_triggers": [{"type": "time", "value": 30}],
+            }
+        ],
+        # Note: no "variables" key at all
+    }
+    warnings = validator.lint(profile)
+    assert any("missing 'variables' array" in w.lower() for w in warnings)
+
+
+def test_lint_empty_variables_array_warns(validator):
+    """Test that empty variables array generates a suggestion warning."""
+    profile = {
+        "name": "Test Profile",
+        "id": "test-id",
+        "temperature": 90.0,
+        "variables": [],  # Empty array is valid but not recommended
+        "stages": [
+            {
+                "name": "Stage 1",
+                "key": "stage_1",
+                "type": "flow",
+                "dynamics": {"points": [[0, 3]], "over": "time"},
+                "exit_triggers": [{"type": "time", "value": 30}],
+            }
+        ],
+    }
+    warnings = validator.lint(profile)
+    assert any("no variables defined" in w.lower() for w in warnings)
+
+
+def test_lint_profile_with_variables_no_warning(validator):
+    """Test that profile with proper variables doesn't warn about missing variables."""
+    profile = {
+        "name": "Test Profile",
+        "id": "test-id",
+        "temperature": 90.0,
+        "variables": [
+            {"name": "Target Pressure", "key": "target_pressure", "type": "pressure", "value": 8.0}
+        ],
+        "stages": [
+            {
+                "name": "Stage 1",
+                "key": "stage_1",
+                "type": "pressure",
+                "dynamics": {"points": [[0, "$target_pressure"]], "over": "time"},
+                "exit_triggers": [{"type": "time", "value": 30}],
+            }
+        ],
+    }
+    warnings = validator.lint(profile)
+    # Should not have any variable-related warnings
+    assert not any("no variables defined" in w.lower() for w in warnings)
+    assert not any("missing 'variables' array" in w.lower() for w in warnings)
+
+
+def test_lint_unused_variable_warns(validator):
+    """Test that unused variables generate a warning."""
+    profile = {
+        "name": "Test Profile",
+        "id": "test-id",
+        "temperature": 90.0,
+        "variables": [
+            {"name": "Used Var", "key": "active_pressure", "type": "pressure", "value": 8.0},
+            {"name": "Unused Var", "key": "dormant_flow", "type": "flow", "value": 3.0},
+        ],
+        "stages": [
+            {
+                "name": "Stage 1",
+                "key": "stage_1",
+                "type": "pressure",
+                "dynamics": {"points": [[0, "$active_pressure"]], "over": "time"},
+                "exit_triggers": [{"type": "time", "value": 30}],
+            }
+        ],
+    }
+    warnings = validator.lint(profile)
+    # Check that dormant_flow (unused) generates a warning
+    assert any("dormant_flow" in w.lower() and "never used" in w.lower() for w in warnings)
+    # Check that active_pressure (used) does NOT generate a "never used" warning
+    assert not any("active_pressure" in w.lower() and "never used" in w.lower() for w in warnings)
+

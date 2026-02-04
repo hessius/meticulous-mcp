@@ -645,3 +645,65 @@ def test_normalize_profile_no_changes_needed():
     assert normalized.stages[0].limits == limits
     assert len(normalized.stages[0].exit_triggers) == 1
 
+
+# ==================== VARIABLES ARRAY ALWAYS PRESENT TESTS ====================
+
+
+def test_create_profile_always_has_variables_array():
+    """Test that create_profile always includes variables array, even when not provided."""
+    profile = create_profile(
+        name="Test Profile",
+        author="Test Author",
+        stages=[],
+        # Note: no variables argument provided
+    )
+    # variables should be an empty list, not None
+    assert profile.variables is not None
+    assert isinstance(profile.variables, list)
+    assert len(profile.variables) == 0
+
+
+def test_create_profile_with_none_variables_becomes_empty_list():
+    """Test that explicitly passing None for variables results in empty list."""
+    profile = create_profile(
+        name="Test Profile",
+        author="Test Author",
+        stages=[],
+        variables=None,  # Explicitly None
+    )
+    # Should be converted to empty list
+    assert profile.variables is not None
+    assert isinstance(profile.variables, list)
+    assert len(profile.variables) == 0
+
+
+def test_profile_to_dict_always_has_variables_array():
+    """Test that profile_to_dict always includes variables array in output."""
+    profile = create_profile(
+        name="Test Profile",
+        author="Test Author",
+        stages=[],
+    )
+    profile_dict = profile_to_dict(profile, normalize=True)
+    
+    # variables should always be present in the dict
+    assert "variables" in profile_dict
+    assert isinstance(profile_dict["variables"], list)
+
+
+def test_profile_to_dict_preserves_existing_variables():
+    """Test that profile_to_dict preserves existing variables."""
+    variable = create_variable("Target Pressure", "target_pressure", "pressure", 8.0)
+    profile = create_profile(
+        name="Test Profile",
+        author="Test Author",
+        stages=[],
+        variables=[variable],
+    )
+    profile_dict = profile_to_dict(profile, normalize=True)
+    
+    assert "variables" in profile_dict
+    assert len(profile_dict["variables"]) == 1
+    assert profile_dict["variables"][0]["key"] == "target_pressure"
+    assert profile_dict["variables"][0]["value"] == 8.0
+
