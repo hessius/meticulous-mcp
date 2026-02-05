@@ -21,6 +21,12 @@ jobs:
     name: Build and Test
     runs-on: ubuntu-latest
     
+    # Explicitly set permissions for security best practices
+    permissions:
+      contents: read        # Read repository contents
+      checks: write         # Write test results to checks
+      pull-requests: write  # Comment on pull requests with test results
+    
     steps:
       # Step 1: Checkout the repository code
       - name: Checkout code
