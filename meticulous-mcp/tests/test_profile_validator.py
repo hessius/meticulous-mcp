@@ -1949,3 +1949,156 @@ def test_lint_unused_variable_warns(validator):
     # Check that active_pressure (used) does NOT generate a "never used" warning
     assert not any("active_pressure" in w.lower() and "never used" in w.lower() for w in warnings)
 
+
+# Tests for _validate_variables (validation errors, not lint warnings)
+
+def test_validate_variables_info_without_emoji_fails(validator):
+    """Test that info variables without emoji prefix fail validation."""
+    profile = {
+        "name": "Test Profile",
+        "id": "test-id",
+        "temperature": 90.0,
+        "variables": [
+            {"name": "Target Weight", "key": "target_weight", "adjustable": False, "value": 36}
+        ],
+        "stages": [
+            {
+                "name": "Stage 1",
+                "key": "stage_1",
+                "type": "pressure",
+                "dynamics": {"points": [[0, 8]], "over": "time"},
+                "exit_triggers": [{"type": "time", "value": 30}],
+                "limits": [{"type": "flow", "value": 5}],
+            }
+        ],
+    }
+    is_valid, errors = validator.validate(profile)
+    assert not is_valid
+    assert any("info variable" in e.lower() and "emoji prefix" in e.lower() for e in errors)
+
+
+def test_validate_variables_info_with_emoji_passes(validator):
+    """Test that info variables with emoji prefix pass validation."""
+    profile = {
+        "name": "Test Profile",
+        "id": "test-id",
+        "temperature": 90.0,
+        "variables": [
+            {"name": "ℹ️ Target Weight", "key": "target_weight", "adjustable": False, "value": 36}
+        ],
+        "stages": [
+            {
+                "name": "Stage 1",
+                "key": "stage_1",
+                "type": "pressure",
+                "dynamics": {"points": [[0, 8]], "over": "time"},
+                "exit_triggers": [{"type": "time", "value": 30}],
+                "limits": [{"type": "flow", "value": 5}],
+            }
+        ],
+    }
+    is_valid, errors = validator.validate(profile)
+    # Should not have emoji-related errors
+    assert not any("emoji" in e.lower() for e in errors)
+
+
+def test_validate_variables_adjustable_with_emoji_fails(validator):
+    """Test that adjustable variables with emoji prefix fail validation."""
+    profile = {
+        "name": "Test Profile",
+        "id": "test-id",
+        "temperature": 90.0,
+        "variables": [
+            {"name": "🎯 Target Pressure", "key": "target_pressure", "adjustable": True, "value": 8.0}
+        ],
+        "stages": [
+            {
+                "name": "Stage 1",
+                "key": "stage_1",
+                "type": "pressure",
+                "dynamics": {"points": [[0, "$target_pressure"]], "over": "time"},
+                "exit_triggers": [{"type": "time", "value": 30}],
+                "limits": [{"type": "flow", "value": 5}],
+            }
+        ],
+    }
+    is_valid, errors = validator.validate(profile)
+    assert not is_valid
+    assert any("adjustable variable" in e.lower() and "should not have an emoji" in e.lower() for e in errors)
+
+
+def test_validate_variables_adjustable_without_emoji_passes(validator):
+    """Test that adjustable variables without emoji prefix pass validation."""
+    profile = {
+        "name": "Test Profile",
+        "id": "test-id",
+        "temperature": 90.0,
+        "variables": [
+            {"name": "Target Pressure", "key": "target_pressure", "adjustable": True, "value": 8.0}
+        ],
+        "stages": [
+            {
+                "name": "Stage 1",
+                "key": "stage_1",
+                "type": "pressure",
+                "dynamics": {"points": [[0, "$target_pressure"]], "over": "time"},
+                "exit_triggers": [{"type": "time", "value": 30}],
+                "limits": [{"type": "flow", "value": 5}],
+            }
+        ],
+    }
+    is_valid, errors = validator.validate(profile)
+    # Should not have emoji-related errors
+    assert not any("emoji" in e.lower() for e in errors)
+
+
+def test_validate_variables_unused_adjustable_fails(validator):
+    """Test that unused adjustable variables fail validation."""
+    profile = {
+        "name": "Test Profile",
+        "id": "test-id",
+        "temperature": 90.0,
+        "variables": [
+            {"name": "Unused Pressure", "key": "unused_pressure", "adjustable": True, "value": 8.0}
+        ],
+        "stages": [
+            {
+                "name": "Stage 1",
+                "key": "stage_1",
+                "type": "pressure",
+                "dynamics": {"points": [[0, 8]], "over": "time"},  # Not using $unused_pressure
+                "exit_triggers": [{"type": "time", "value": 30}],
+                "limits": [{"type": "flow", "value": 5}],
+            }
+        ],
+    }
+    is_valid, errors = validator.validate(profile)
+    assert not is_valid
+    assert any("unused_pressure" in e.lower() and "never used" in e.lower() for e in errors)
+
+
+def test_validate_variables_unused_info_passes(validator):
+    """Test that unused info variables pass validation (they're display-only)."""
+    profile = {
+        "name": "Test Profile",
+        "id": "test-id",
+        "temperature": 90.0,
+        "variables": [
+            {"name": "ℹ️ Roast Level", "key": "roast_level", "adjustable": False, "value": "Medium"}
+        ],
+        "stages": [
+            {
+                "name": "Stage 1",
+                "key": "stage_1",
+                "type": "pressure",
+                "dynamics": {"points": [[0, 8]], "over": "time"},
+                "exit_triggers": [{"type": "time", "value": 30}],
+                "limits": [{"type": "flow", "value": 5}],
+            }
+        ],
+    }
+    is_valid, errors = validator.validate(profile)
+    # Unused info vars should not cause errors (they're for display)
+    assert not any("roast_level" in e.lower() and "never used" in e.lower() for e in errors)
+
+

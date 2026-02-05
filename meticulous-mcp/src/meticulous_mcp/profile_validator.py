@@ -146,6 +146,10 @@ class ProfileValidator:
         weight_trigger_errors = self._validate_absolute_weight_triggers(profile)
         errors.extend(weight_trigger_errors)
         
+        # Add validation for variable naming and usage
+        variable_errors = self._validate_variables(profile)
+        errors.extend(variable_errors)
+        
         return len(errors) == 0, errors
 
     def validate_and_raise(self, profile: Dict[str, Any]) -> None:
@@ -622,6 +626,94 @@ class ProfileValidator:
                     if trigger_value > max_absolute_weight:
                         max_absolute_weight = trigger_value
                         max_weight_stage_name = stage_name
+        
+        return errors
+
+    def _validate_variables(self, profile: Dict[str, Any]) -> List[str]:
+        """Validate variable definitions and usage in profile.
+        
+        Rules:
+        1. Info variables (displayed but not adjustable) MUST have emoji prefix in name
+        2. Adjustable variables (user can change) must NOT have emoji prefix
+        3. Variables should be used in at least one stage dynamics
+        
+        Args:
+            profile: Profile dictionary to validate
+            
+        Returns:
+            List of variable validation errors
+        """
+        errors = []
+        
+        variables = profile.get("variables", [])
+        if not variables:
+            return errors
+        
+        # Regex to detect emoji at start of string
+        import re
+        emoji_pattern = re.compile(
+            r'^['
+            r'\U0001F300-\U0001F9FF'  # Miscellaneous Symbols and Pictographs, Emoticons, etc.
+            r'\U00002600-\U000027BF'  # Misc symbols, Dingbats
+            r'\U00002100-\U0000214F'  # Letterlike Symbols (includes ℹ️ U+2139)
+            r'\U0001F000-\U0001F02F'  # Mahjong tiles
+            r'\U0001FA00-\U0001FAFF'  # Extended-A symbols
+            r']'
+        )
+        
+        # Collect all variable keys for usage tracking
+        var_keys = {}
+        for var in variables:
+            if not isinstance(var, dict):
+                continue
+            key = var.get("key")
+            name = var.get("name", "")
+            is_info = not var.get("adjustable", True)  # Default to adjustable if not specified
+            
+            if key:
+                var_keys[key] = {"name": name, "is_info": is_info, "used": False}
+                
+                has_emoji = bool(emoji_pattern.match(name))
+                
+                # Rule 1: Info variables must have emoji prefix
+                if is_info and not has_emoji:
+                    errors.append(
+                        f"Info variable '{key}' ({name}) must have an emoji prefix in its name. "
+                        f"Info variables are displayed to help the user understand the profile but "
+                        f"cannot be adjusted. Add an emoji like ℹ️, 📊, or 💡 at the start."
+                    )
+                
+                # Rule 2: Adjustable variables must NOT have emoji prefix  
+                if not is_info and has_emoji:
+                    errors.append(
+                        f"Adjustable variable '{key}' ({name}) should not have an emoji prefix. "
+                        f"Emoji prefixes are reserved for info (non-adjustable) variables to "
+                        f"visually distinguish them in the UI."
+                    )
+        
+        # Track variable usage in stage dynamics
+        if "stages" in profile:
+            for stage in profile["stages"]:
+                if not isinstance(stage, dict):
+                    continue
+                dynamics = stage.get("dynamics", {})
+                points = dynamics.get("points", [])
+                for point in points:
+                    if isinstance(point, list):
+                        for val in point:
+                            if isinstance(val, str) and val.startswith("$"):
+                                var_key = val[1:]  # Remove $
+                                if var_key in var_keys:
+                                    var_keys[var_key]["used"] = True
+        
+        # Rule 3: Check for unused adjustable variables (error, not warning)
+        for key, info in var_keys.items():
+            if not info["used"] and not info["is_info"]:
+                errors.append(
+                    f"Adjustable variable '{key}' ({info['name']}) is defined but never used in any "
+                    f"stage dynamics. Either use it with ${key} in a dynamics point, mark it as "
+                    f"info-only (adjustable: false), or remove it."
+                )
         
         return errors
 
