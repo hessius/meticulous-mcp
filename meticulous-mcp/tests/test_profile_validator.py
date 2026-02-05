@@ -1012,7 +1012,7 @@ def test_validate_curve_interpolation_requires_two_points(validator):
     }
     is_valid, errors = validator.validate(profile)
     assert not is_valid
-    assert any("curve" in e.lower() and "2 point" in e.lower() for e in errors)
+    assert any("curve" in e.lower() and "2 points" in e.lower() for e in errors)
 
 
 def test_validate_curve_interpolation_with_two_points_passes(validator):
@@ -1037,7 +1037,7 @@ def test_validate_curve_interpolation_with_two_points_passes(validator):
         ],
     }
     is_valid, errors = validator.validate(profile)
-    curve_errors = [e for e in errors if "curve" in e.lower() and "2 point" in e.lower()]
+    curve_errors = [e for e in errors if "curve" in e.lower() and "2 points" in e.lower()]
     assert len(curve_errors) == 0
 
 

@@ -921,48 +921,49 @@ class ProfileValidator:
                     warnings.append(f"Final weight {weight}g is quite high - this approaches lungo/ristretto territory")
         
         # Check variables - the variables array should always exist for app compatibility
-        variables = profile.get("variables", [])
-        if not variables:
-            # No variables defined - this is a warning since profiles should use variables
-            # for easier real-time adjustments in the app
-            warnings.append(
-                "Profile has no variables defined - consider adding variables (e.g., target pressure, "
-                "bloom flow rate) for easier adjustments during brewing. Variables allow you to tweak "
-                "profile parameters without editing individual stage dynamics."
-            )
-        else:
-            var_keys = [v.get("key") for v in variables if isinstance(v, dict)]
-            
-            # Check for undefined variable references in stages
-            if "stages" in profile:
-                stages = profile["stages"]
-                variables_used = set()
-                for stage in stages:
-                    if not isinstance(stage, dict):
-                        continue
-                    # Check dynamics points for variable references
-                    dynamics = stage.get("dynamics", {})
-                    points = dynamics.get("points", [])
-                    for point in points:
-                        if isinstance(point, list) and len(point) >= 2:
-                            for val in point:
-                                if isinstance(val, str) and val.startswith("$"):
-                                    var_key = val[1:]  # Remove $
-                                    variables_used.add(var_key)
-                                    if var_key not in var_keys:
-                                        warnings.append(f"Stage '{stage.get('name', 'unknown')}' references variable '${var_key}' but it's not defined in variables")
-                
-                # Check for unused variables
-                unused_vars = set(var_keys) - variables_used
-                for unused in unused_vars:
-                    warnings.append(f"Variable '{unused}' is defined but never used in any stage dynamics")
-        
-        # Check if variables array exists (required for app compatibility)
+        # Handle three cases: missing key, empty array, or populated array
         if "variables" not in profile:
+            # Case 1: Key missing entirely - most critical, affects app compatibility
             warnings.append(
                 "Profile is missing 'variables' array - this field must be present (even if empty) "
                 "for Meticulous app compatibility. The app may crash when trying to add variables."
             )
+        else:
+            variables = profile.get("variables", [])
+            if not variables:
+                # Case 2: Empty array - valid but could be more useful
+                warnings.append(
+                    "Profile has no variables defined - consider adding variables (e.g., target pressure, "
+                    "bloom flow rate) for easier adjustments during brewing. Variables allow you to tweak "
+                    "profile parameters without editing individual stage dynamics."
+                )
+            else:
+                # Case 3: Has variables - check for undefined references and unused variables
+                var_keys = [v.get("key") for v in variables if isinstance(v, dict)]
+                
+                # Check for undefined variable references in stages
+                if "stages" in profile:
+                    stages = profile["stages"]
+                    variables_used = set()
+                    for stage in stages:
+                        if not isinstance(stage, dict):
+                            continue
+                        # Check dynamics points for variable references
+                        dynamics = stage.get("dynamics", {})
+                        points = dynamics.get("points", [])
+                        for point in points:
+                            if isinstance(point, list) and len(point) >= 2:
+                                for val in point:
+                                    if isinstance(val, str) and val.startswith("$"):
+                                        var_key = val[1:]  # Remove $
+                                        variables_used.add(var_key)
+                                        if var_key not in var_keys:
+                                            warnings.append(f"Stage '{stage.get('name', 'unknown')}' references variable '${var_key}' but it's not defined in variables")
+                    
+                    # Check for unused variables
+                    unused_vars = set(var_keys) - variables_used
+                    for unused in unused_vars:
+                        warnings.append(f"Variable '{unused}' is defined but never used in any stage dynamics")
 
         return warnings
 
