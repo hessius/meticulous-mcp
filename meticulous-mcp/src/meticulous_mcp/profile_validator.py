@@ -18,11 +18,29 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import json
 import os
+import re
+from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 import jsonschema
 from jsonschema import ValidationError
+
+
+class ValidationLevel(Enum):
+    """Controls which checks are run during profile validation.
+
+    Levels:
+    - MACHINE: Schema conformance + hardware limits only. Use when you trust the
+      profile author and only want to catch machine-breaking errors.
+    - SAFETY (default): Everything in MACHINE plus shot-safety best-practice
+      checks (backup triggers, required limits, redundant limits, etc.).
+    - STRICT: Everything in SAFETY plus app-UI convention checks (variable
+      naming conventions, emoji rules, etc.).
+    """
+    MACHINE = "machine"
+    SAFETY = "safety"
+    STRICT = "strict"
 
 
 class ProfileValidationError(Exception):
@@ -53,13 +71,16 @@ class ProfileValidationError(Exception):
 class ProfileValidator:
     """Validates espresso profiles against JSON schema."""
 
-    def __init__(self, schema_path: Optional[str] = None):
+    def __init__(self, schema_path: Optional[str] = None, level: ValidationLevel = ValidationLevel.SAFETY):
         """Initialize the validator.
-        
+
         Args:
             schema_path: Path to schema.json file. If not provided, attempts to find
                         it relative to this file or in espresso-profile-schema repo.
+            level: Default validation level to use when none is passed to validate().
+                   Defaults to ValidationLevel.SAFETY.
         """
+        self._default_level = level
         possible_paths = []
         if schema_path is None:
             # Try to find schema relative to this file
@@ -86,82 +107,96 @@ class ProfileValidator:
         # Create validator instance
         self._validator = jsonschema.Draft7Validator(self._schema)
 
-    def validate(self, profile: Dict[str, Any]) -> Tuple[bool, List[str]]:
+    def validate(self, profile: Dict[str, Any], level: Optional[ValidationLevel] = None) -> Tuple[bool, List[str]]:
         """Validate a profile against the schema.
-        
+
         Args:
             profile: Profile dictionary to validate
-            
+            level: Validation level to use. Defaults to the level set at construction
+                   time (ValidationLevel.SAFETY if not specified).
+
         Returns:
             Tuple of (is_valid, list_of_errors)
         """
+        if level is None:
+            level = self._default_level
+
         errors = []
         try:
             self._validator.validate(profile)
         except ValidationError as e:
             errors.append(self._format_error(e))
-            
+
             # Collect all validation errors
             for error in self._validator.iter_errors(profile):
                 if error != e:  # Don't duplicate the first error
                     errors.append(self._format_error(error))
-        
-        # Add custom validation for pressure limits (15 bar max)
-        pressure_errors = self._validate_pressure_limits(profile)
-        errors.extend(pressure_errors)
-        
-        # Add custom validation for interpolation values
-        interpolation_errors = self._validate_interpolation(profile)
-        errors.extend(interpolation_errors)
-        
-        # Add custom validation for dynamics.over values
-        dynamics_over_errors = self._validate_dynamics_over(profile)
-        errors.extend(dynamics_over_errors)
-        
-        # Add custom validation for stage types
-        stage_type_errors = self._validate_stage_types(profile)
-        errors.extend(stage_type_errors)
-        
-        # Add custom validation for exit triggers
-        exit_trigger_errors = self._validate_exit_triggers(profile)
-        errors.extend(exit_trigger_errors)
-        
-        # Add custom validation for limits
-        limit_errors = self._validate_limits(profile)
-        errors.extend(limit_errors)
-        
-        # Add validation for exit trigger type matching stage type (paradox check)
-        exit_stage_match_errors = self._validate_exit_trigger_matches_stage_type(profile)
-        errors.extend(exit_stage_match_errors)
-        
-        # Add validation for backup exit triggers (failsafe check)
-        backup_trigger_errors = self._validate_backup_exit_triggers(profile)
-        errors.extend(backup_trigger_errors)
-        
-        # Add validation for required safety limits
-        required_limit_errors = self._validate_required_limits(profile)
-        errors.extend(required_limit_errors)
-        
-        # Add validation for absolute weight trigger consistency across stages
-        weight_trigger_errors = self._validate_absolute_weight_triggers(profile)
-        errors.extend(weight_trigger_errors)
-        
-        # Add validation for variable naming and usage
-        variable_errors = self._validate_variables(profile)
-        errors.extend(variable_errors)
-        
+
+        # --- MACHINE level checks (always run) ---------------------------------
+        # Hardware limits and schema-level constraints that, if violated, will
+        # cause the machine to behave dangerously or reject the profile entirely.
+
+        # Pressure limits (15 bar max)
+        errors.extend(self._validate_pressure_limits(profile))
+
+        # Interpolation values (only 'linear' and 'curve' supported)
+        errors.extend(self._validate_interpolation(profile))
+
+        # dynamics.over values
+        errors.extend(self._validate_dynamics_over(profile))
+
+        # Stage types
+        errors.extend(self._validate_stage_types(profile))
+
+        # Exit trigger types and comparison operators
+        errors.extend(self._validate_exit_triggers(profile))
+
+        # Limit types (validity only — redundancy is a SAFETY check)
+        errors.extend(self._validate_limit_types(profile))
+
+        # Absolute weight trigger monotonicity
+        errors.extend(self._validate_absolute_weight_triggers(profile))
+
+        # --- SAFETY level checks (run at SAFETY and STRICT) --------------------
+        # Best-practice shot-safety patterns. Violations won't necessarily crash
+        # the machine but can cause dangerous shots or indefinite stalls.
+        if level in (ValidationLevel.SAFETY, ValidationLevel.STRICT):
+            # Redundant limits (same type as stage control)
+            errors.extend(self._validate_redundant_limits(profile))
+
+            # Exit trigger type must not match stage control type
+            errors.extend(self._validate_exit_trigger_matches_stage_type(profile))
+
+            # Every stage needs a backup/failsafe exit trigger
+            errors.extend(self._validate_backup_exit_triggers(profile))
+
+            # Flow stages need pressure limits; pressure stages need flow limits
+            errors.extend(self._validate_required_limits(profile))
+
+            # Adjustable variables that are defined but never used
+            errors.extend(self._validate_unused_adjustable_variables(profile))
+
+        # --- STRICT level checks (run only at STRICT) --------------------------
+        # App-UI convention checks. Violations affect the user experience in the
+        # Meticulous app but do not affect shot safety or machine operation.
+        if level == ValidationLevel.STRICT:
+            # Variable naming conventions (emoji rules)
+            errors.extend(self._validate_variable_naming(profile))
+
         return len(errors) == 0, errors
 
-    def validate_and_raise(self, profile: Dict[str, Any]) -> None:
+    def validate_and_raise(self, profile: Dict[str, Any], level: Optional[ValidationLevel] = None) -> None:
         """Validate a profile and raise ProfileValidationError if invalid.
-        
+
         Args:
             profile: Profile dictionary to validate
-            
+            level: Validation level to use. Defaults to the level set at construction
+                   time (ValidationLevel.SAFETY if not specified).
+
         Raises:
             ProfileValidationError: If validation fails (includes all errors in message)
         """
-        is_valid, errors = self.validate(profile)
+        is_valid, errors = self.validate(profile, level=level)
         if not is_valid:
             message = f"Profile validation failed with {len(errors)} error(s)"
             # The ProfileValidationError will automatically include all errors in its message
@@ -370,55 +405,86 @@ class ProfileValidator:
         
         return errors
 
-    def _validate_limits(self, profile: Dict[str, Any]) -> List[str]:
-        """Validate limit values in profile.
-        
+    def _validate_limit_types(self, profile: Dict[str, Any]) -> List[str]:
+        """Validate limit type values in profile (MACHINE level check).
+
         Limit type must be one of: 'pressure', 'flow'.
-        Additionally, a limit cannot have the same type as the stage control type,
-        as this is redundant and the Meticulous app will reject it.
-        
+
         Args:
             profile: Profile dictionary to validate
-            
+
         Returns:
-            List of limit validation errors
+            List of limit type validation errors
         """
         errors = []
         valid_limit_types = {"pressure", "flow"}
-        
+
         if "stages" not in profile or not isinstance(profile["stages"], list):
             return errors
-        
+
         for i, stage in enumerate(profile["stages"]):
             if not isinstance(stage, dict):
                 continue
-            
+
             stage_name = stage.get("name", f"Stage {i+1}")
-            stage_type = stage.get("type")
             limits = stage.get("limits", [])
-            
+
             if not isinstance(limits, list):
                 continue
-            
+
             for limit_idx, limit in enumerate(limits):
                 if not isinstance(limit, dict):
                     continue
-                
+
                 limit_type = limit.get("type")
                 if limit_type is not None and limit_type not in valid_limit_types:
                     errors.append(
                         f"Stage '{stage_name}' limit {limit_idx+1} has invalid type '{limit_type}'. "
                         f"Must be one of: 'pressure', 'flow'."
                     )
-                
-                # Check for redundant limit (same type as stage control)
+
+        return errors
+
+    def _validate_redundant_limits(self, profile: Dict[str, Any]) -> List[str]:
+        """Validate that limits are not redundant with stage control type (SAFETY level check).
+
+        A limit cannot have the same type as the stage control type, as this is
+        redundant and the Meticulous app will reject it.
+
+        Args:
+            profile: Profile dictionary to validate
+
+        Returns:
+            List of redundant limit validation errors
+        """
+        errors = []
+
+        if "stages" not in profile or not isinstance(profile["stages"], list):
+            return errors
+
+        for i, stage in enumerate(profile["stages"]):
+            if not isinstance(stage, dict):
+                continue
+
+            stage_name = stage.get("name", f"Stage {i+1}")
+            stage_type = stage.get("type")
+            limits = stage.get("limits", [])
+
+            if not isinstance(limits, list):
+                continue
+
+            for limit in limits:
+                if not isinstance(limit, dict):
+                    continue
+
+                limit_type = limit.get("type")
                 if limit_type is not None and stage_type is not None and limit_type == stage_type:
                     errors.append(
                         f"Stage '{stage_name}' has a '{limit_type}' limit but is a '{stage_type}' control stage. "
                         f"This is redundant - you cannot limit {limit_type} when you're already controlling {stage_type}. "
                         f"Use a '{('pressure' if limit_type == 'flow' else 'flow')}' limit instead, or remove the limit."
                     )
-        
+
         return errors
 
     def _validate_exit_trigger_matches_stage_type(self, profile: Dict[str, Any]) -> List[str]:
@@ -629,29 +695,9 @@ class ProfileValidator:
         
         return errors
 
-    def _validate_variables(self, profile: Dict[str, Any]) -> List[str]:
-        """Validate variable definitions and usage in profile.
-        
-        Rules:
-        1. Info variables (displayed but not adjustable) MUST have emoji prefix in name
-        2. Adjustable variables (user can change) must NOT have emoji prefix
-        3. Variables should be used in at least one stage dynamics
-        
-        Args:
-            profile: Profile dictionary to validate
-            
-        Returns:
-            List of variable validation errors
-        """
-        errors = []
-        
-        variables = profile.get("variables", [])
-        if not variables:
-            return errors
-        
-        # Regex to detect emoji at start of string
-        import re
-        emoji_pattern = re.compile(
+    def _build_emoji_pattern(self) -> "re.Pattern[str]":
+        """Build a compiled regex for detecting an emoji at the start of a string."""
+        return re.compile(
             r'^['
             r'\U0001F300-\U0001F9FF'  # Miscellaneous Symbols and Pictographs, Emoticons, etc.
             r'\U00002600-\U000027BF'  # Misc symbols, Dingbats
@@ -661,61 +707,107 @@ class ProfileValidator:
             r'\uFE00-\uFE0F'          # Variation Selectors (emoji presentation)
             r']'
         )
-        
-        # Collect all variable keys for usage tracking
-        var_keys = {}
+
+    def _variable_usage_map(self, profile: Dict[str, Any]) -> Dict[str, bool]:
+        """Return a dict mapping variable key → True if used in any stage dynamics."""
+        used: Dict[str, bool] = {}
+        if "stages" not in profile:
+            return used
+        for stage in profile["stages"]:
+            if not isinstance(stage, dict):
+                continue
+            dynamics = stage.get("dynamics", {})
+            points = dynamics.get("points", [])
+            for point in points:
+                if isinstance(point, list):
+                    for val in point:
+                        if isinstance(val, str) and val.startswith("$"):
+                            used[val[1:]] = True
+        return used
+
+    def _validate_variable_naming(self, profile: Dict[str, Any]) -> List[str]:
+        """Validate variable naming conventions — emoji rules (STRICT level check).
+
+        Rules:
+        1. Info variables (adjustable=False) MUST have an emoji prefix in their name.
+        2. Adjustable variables (adjustable=True) must NOT have an emoji prefix.
+
+        Args:
+            profile: Profile dictionary to validate
+
+        Returns:
+            List of variable naming validation errors
+        """
+        errors = []
+        variables = profile.get("variables", [])
+        if not variables:
+            return errors
+
+        emoji_pattern = self._build_emoji_pattern()
+
         for var in variables:
             if not isinstance(var, dict):
                 continue
             key = var.get("key")
             name = var.get("name", "")
-            is_info = not var.get("adjustable", True)  # Default to adjustable if not specified
-            
-            if key:
-                var_keys[key] = {"name": name, "is_info": is_info, "used": False}
-                
-                has_emoji = bool(emoji_pattern.match(name))
-                
-                # Rule 1: Info variables must have emoji prefix
-                if is_info and not has_emoji:
-                    errors.append(
-                        f"Info variable '{key}' ({name}) must have an emoji prefix in its name. "
-                        f"Info variables are displayed to help the user understand the profile but "
-                        f"cannot be adjusted. Add an emoji like ℹ️, 📊, or 💡 at the start."
-                    )
-                
-                # Rule 2: Adjustable variables must NOT have emoji prefix  
-                if not is_info and has_emoji:
-                    errors.append(
-                        f"Adjustable variable '{key}' ({name}) should not have an emoji prefix. "
-                        f"Emoji prefixes are reserved for info (non-adjustable) variables to "
-                        f"visually distinguish them in the UI."
-                    )
-        
-        # Track variable usage in stage dynamics
-        if "stages" in profile:
-            for stage in profile["stages"]:
-                if not isinstance(stage, dict):
-                    continue
-                dynamics = stage.get("dynamics", {})
-                points = dynamics.get("points", [])
-                for point in points:
-                    if isinstance(point, list):
-                        for val in point:
-                            if isinstance(val, str) and val.startswith("$"):
-                                var_key = val[1:]  # Remove $
-                                if var_key in var_keys:
-                                    var_keys[var_key]["used"] = True
-        
-        # Rule 3: Check for unused adjustable variables (error, not warning)
-        for key, info in var_keys.items():
-            if not info["used"] and not info["is_info"]:
+            is_info = not var.get("adjustable", True)
+
+            if not key:
+                continue
+
+            has_emoji = bool(emoji_pattern.match(name))
+
+            if is_info and not has_emoji:
                 errors.append(
-                    f"Adjustable variable '{key}' ({info['name']}) is defined but never used in any "
+                    f"Info variable '{key}' ({name}) must have an emoji prefix in its name. "
+                    f"Info variables are displayed to help the user understand the profile but "
+                    f"cannot be adjusted. Add an emoji like ℹ️, 📊, or 💡 at the start."
+                )
+
+            if not is_info and has_emoji:
+                errors.append(
+                    f"Adjustable variable '{key}' ({name}) should not have an emoji prefix. "
+                    f"Emoji prefixes are reserved for info (non-adjustable) variables to "
+                    f"visually distinguish them in the UI."
+                )
+
+        return errors
+
+    def _validate_unused_adjustable_variables(self, profile: Dict[str, Any]) -> List[str]:
+        """Validate that all adjustable variables are used in stage dynamics (SAFETY level check).
+
+        Adjustable variables are intended to be referenced as $key in dynamics points.
+        An adjustable variable that is never used is most likely a mistake.
+
+        Info variables (adjustable=False) are display-only and do not need to be used.
+
+        Args:
+            profile: Profile dictionary to validate
+
+        Returns:
+            List of unused-variable validation errors
+        """
+        errors = []
+        variables = profile.get("variables", [])
+        if not variables:
+            return errors
+
+        used_map = self._variable_usage_map(profile)
+
+        for var in variables:
+            if not isinstance(var, dict):
+                continue
+            key = var.get("key")
+            name = var.get("name", "")
+            is_info = not var.get("adjustable", True)
+
+            if key and not is_info and not used_map.get(key, False):
+                errors.append(
+                    f"Adjustable variable '{key}' ({name}) is defined but never used in any "
                     f"stage dynamics. Either use it with ${key} in a dynamics point, mark it as "
                     f"info-only (adjustable: false), or remove it."
                 )
-        
+
         return errors
 
     def _format_error(self, error: ValidationError) -> str:
