@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from meticulous_mcp.profile_validator import ProfileValidationError, ProfileValidator
+from meticulous_mcp.profile_validator import ProfileValidationError, ProfileValidator, ValidationLevel
 
 
 @pytest.fixture
@@ -1953,7 +1953,7 @@ def test_lint_unused_variable_warns(validator):
 # Tests for _validate_variables (validation errors, not lint warnings)
 
 def test_validate_variables_info_without_emoji_fails(validator):
-    """Test that info variables without emoji prefix fail validation."""
+    """Test that info variables without emoji prefix fail STRICT validation."""
     profile = {
         "name": "Test Profile",
         "id": "test-id",
@@ -1972,13 +1972,13 @@ def test_validate_variables_info_without_emoji_fails(validator):
             }
         ],
     }
-    is_valid, errors = validator.validate(profile)
+    is_valid, errors = validator.validate(profile, level=ValidationLevel.STRICT)
     assert not is_valid
     assert any("info variable" in e.lower() and "emoji prefix" in e.lower() for e in errors)
 
 
 def test_validate_variables_info_with_emoji_passes(validator):
-    """Test that info variables with emoji prefix pass validation."""
+    """Test that info variables with emoji prefix pass STRICT validation."""
     profile = {
         "name": "Test Profile",
         "id": "test-id",
@@ -1997,13 +1997,13 @@ def test_validate_variables_info_with_emoji_passes(validator):
             }
         ],
     }
-    is_valid, errors = validator.validate(profile)
+    is_valid, errors = validator.validate(profile, level=ValidationLevel.STRICT)
     # Should not have emoji-related errors
     assert not any("emoji" in e.lower() for e in errors)
 
 
 def test_validate_variables_adjustable_with_emoji_fails(validator):
-    """Test that adjustable variables with emoji prefix fail validation."""
+    """Test that adjustable variables with emoji prefix fail STRICT validation."""
     profile = {
         "name": "Test Profile",
         "id": "test-id",
@@ -2022,13 +2022,13 @@ def test_validate_variables_adjustable_with_emoji_fails(validator):
             }
         ],
     }
-    is_valid, errors = validator.validate(profile)
+    is_valid, errors = validator.validate(profile, level=ValidationLevel.STRICT)
     assert not is_valid
     assert any("adjustable variable" in e.lower() and "should not have an emoji" in e.lower() for e in errors)
 
 
 def test_validate_variables_adjustable_without_emoji_passes(validator):
-    """Test that adjustable variables without emoji prefix pass validation."""
+    """Test that adjustable variables without emoji prefix pass STRICT validation."""
     profile = {
         "name": "Test Profile",
         "id": "test-id",
@@ -2047,7 +2047,7 @@ def test_validate_variables_adjustable_without_emoji_passes(validator):
             }
         ],
     }
-    is_valid, errors = validator.validate(profile)
+    is_valid, errors = validator.validate(profile, level=ValidationLevel.STRICT)
     # Should not have emoji-related errors
     assert not any("emoji" in e.lower() for e in errors)
 
@@ -2102,3 +2102,191 @@ def test_validate_variables_unused_info_passes(validator):
     assert not any("roast_level" in e.lower() and "never used" in e.lower() for e in errors)
 
 
+# ==================== ValidationLevel System Tests ====================
+
+
+# Shared helper profile that has ONLY a redundant limit (flow limit on flow stage)
+# and is otherwise valid at the MACHINE level (no pressure issues, good types, etc.).
+def _make_redundant_limit_profile():
+    return {
+        "name": "Test Profile",
+        "id": "test-id",
+        "temperature": 90.0,
+        "variables": [],
+        "stages": [
+            {
+                "name": "Pre-Wet",
+                "key": "stage_1",
+                "type": "flow",
+                "dynamics": {"points": [[0, 3], [10, 3]], "over": "time", "interpolation": "linear"},
+                "exit_triggers": [{"type": "time", "value": 30, "relative": True}],
+                "limits": [{"type": "flow", "value": 3}],  # Redundant: flow on flow stage
+            }
+        ],
+    }
+
+
+def _make_no_backup_trigger_profile():
+    """Profile with only a weight exit trigger — no time-based failsafe."""
+    return {
+        "name": "Test Profile",
+        "id": "test-id",
+        "temperature": 90.0,
+        "variables": [],
+        "stages": [
+            {
+                "name": "Extraction",
+                "key": "stage_1",
+                "type": "flow",
+                "dynamics": {"points": [[0, 4], [10, 4]], "over": "time", "interpolation": "linear"},
+                "exit_triggers": [{"type": "weight", "value": 36, "relative": True}],
+                "limits": [{"type": "pressure", "value": 9}],
+            }
+        ],
+    }
+
+
+def _make_emoji_info_variable_profile():
+    """Profile with an info variable that is MISSING the required emoji prefix."""
+    return {
+        "name": "Test Profile",
+        "id": "test-id",
+        "temperature": 90.0,
+        "variables": [
+            {"name": "Roast Level", "key": "roast_level", "adjustable": False, "value": "Medium"}
+        ],
+        "stages": [
+            {
+                "name": "Stage 1",
+                "key": "stage_1",
+                "type": "pressure",
+                "dynamics": {"points": [[0, 9], [10, 9]], "over": "time", "interpolation": "linear"},
+                "exit_triggers": [{"type": "time", "value": 30, "relative": True}],
+                "limits": [{"type": "flow", "value": 5}],
+            }
+        ],
+    }
+
+
+def test_validate_default_is_safety_level(validator):
+    """Test that the default validation level is SAFETY."""
+    profile = _make_redundant_limit_profile()
+
+    # Default call — should behave the same as explicitly passing SAFETY
+    is_valid_default, errors_default = validator.validate(profile)
+    is_valid_safety, errors_safety = validator.validate(profile, level=ValidationLevel.SAFETY)
+
+    assert is_valid_default == is_valid_safety
+    assert errors_default == errors_safety
+
+
+def test_validate_machine_level_skips_redundant_limits(validator):
+    """Test that redundant limits are NOT caught at MACHINE level."""
+    profile = _make_redundant_limit_profile()
+    is_valid, errors = validator.validate(profile, level=ValidationLevel.MACHINE)
+    redundant_errors = [e for e in errors if "redundant" in e.lower()]
+    assert len(redundant_errors) == 0
+
+
+def test_validate_safety_level_catches_redundant_limits(validator):
+    """Test that redundant limits ARE caught at SAFETY (default) level."""
+    profile = _make_redundant_limit_profile()
+    is_valid, errors = validator.validate(profile, level=ValidationLevel.SAFETY)
+    assert not is_valid
+    assert any("redundant" in e.lower() and "flow" in e.lower() for e in errors)
+
+
+def test_validate_machine_level_skips_backup_trigger_check(validator):
+    """Test that the missing-backup-trigger check is skipped at MACHINE level."""
+    profile = _make_no_backup_trigger_profile()
+    is_valid, errors = validator.validate(profile, level=ValidationLevel.MACHINE)
+    backup_errors = [e for e in errors if "backup" in e.lower() or "failsafe" in e.lower()]
+    assert len(backup_errors) == 0
+
+
+def test_validate_safety_level_catches_backup_trigger(validator):
+    """Test that a missing backup trigger is caught at SAFETY level."""
+    profile = _make_no_backup_trigger_profile()
+    is_valid, errors = validator.validate(profile, level=ValidationLevel.SAFETY)
+    assert not is_valid
+    assert any("backup" in e.lower() or "failsafe" in e.lower() for e in errors)
+
+
+def test_validate_safety_level_skips_emoji_rules(validator):
+    """Test that emoji naming rules are NOT enforced at SAFETY (default) level."""
+    profile = _make_emoji_info_variable_profile()
+    is_valid, errors = validator.validate(profile, level=ValidationLevel.SAFETY)
+    emoji_errors = [e for e in errors if "emoji" in e.lower()]
+    assert len(emoji_errors) == 0
+
+
+def test_validate_strict_level_catches_emoji_rules(validator):
+    """Test that emoji naming rules ARE enforced at STRICT level."""
+    profile = _make_emoji_info_variable_profile()
+    is_valid, errors = validator.validate(profile, level=ValidationLevel.STRICT)
+    assert not is_valid
+    assert any("info variable" in e.lower() and "emoji prefix" in e.lower() for e in errors)
+
+
+def test_validate_strict_level_also_runs_safety_checks(validator):
+    """Test that STRICT level still runs all SAFETY-level checks."""
+    profile = _make_redundant_limit_profile()
+    is_valid, errors = validator.validate(profile, level=ValidationLevel.STRICT)
+    # Redundant limit should still be caught even at STRICT level
+    assert not is_valid
+    assert any("redundant" in e.lower() for e in errors)
+
+
+def test_validate_machine_level_catches_invalid_pressure(validator):
+    """Test that over-pressure errors are always caught, even at MACHINE level."""
+    profile = {
+        "name": "Test Profile",
+        "id": "test-id",
+        "temperature": 90.0,
+        "stages": [
+            {
+                "name": "High Pressure Stage",
+                "key": "stage_1",
+                "type": "pressure",
+                "dynamics": {"points": [[0, 20]], "over": "time", "interpolation": "linear"},
+                "exit_triggers": [{"type": "time", "value": 30, "relative": True}],
+                "limits": [{"type": "flow", "value": 5}],
+            }
+        ],
+    }
+    is_valid, errors = validator.validate(profile, level=ValidationLevel.MACHINE)
+    assert not is_valid
+    assert any("15 bar limit" in e.lower() for e in errors)
+
+
+def test_validate_level_passed_to_validate_and_raise(validator):
+    """Test that validate_and_raise respects the level parameter."""
+    profile = _make_emoji_info_variable_profile()
+
+    # Should NOT raise at SAFETY level (emoji rules not checked)
+    validator.validate_and_raise(profile, level=ValidationLevel.SAFETY)
+
+    # Should raise at STRICT level (emoji rules enforced)
+    with pytest.raises(ProfileValidationError) as exc_info:
+        validator.validate_and_raise(profile, level=ValidationLevel.STRICT)
+    assert any("emoji" in e.lower() for e in exc_info.value.errors)
+
+
+def test_validator_constructor_default_level(sample_schema):
+    """Test that the constructor default level can be overridden."""
+    # Create a validator with MACHINE as default
+    machine_validator = ProfileValidator(schema_path=sample_schema, level=ValidationLevel.MACHINE)
+
+    profile = _make_redundant_limit_profile()
+    is_valid, errors = machine_validator.validate(profile)  # No level arg — uses constructor default
+    redundant_errors = [e for e in errors if "redundant" in e.lower()]
+    assert len(redundant_errors) == 0  # MACHINE default skips redundancy check
+
+
+def test_validator_constructor_strict_level(sample_schema):
+    """Test that a validator created with STRICT default enforces emoji rules without passing level."""
+    strict_validator = ProfileValidator(schema_path=sample_schema, level=ValidationLevel.STRICT)
+    profile = _make_emoji_info_variable_profile()
+    is_valid, errors = strict_validator.validate(profile)  # No level arg — uses STRICT default
+    assert not is_valid
+    assert any("emoji" in e.lower() for e in errors)
