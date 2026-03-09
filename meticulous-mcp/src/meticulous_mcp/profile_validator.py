@@ -80,6 +80,15 @@ class ProfileValidator:
             level: Default validation level to use when none is passed to validate().
                    Defaults to ValidationLevel.SAFETY.
         """
+        # Validate and coerce the default validation level to a proper ValidationLevel
+        if not isinstance(level, ValidationLevel):
+            try:
+                level = ValidationLevel(level)
+            except (ValueError, TypeError) as exc:
+                raise TypeError(
+                    f"Invalid validation level {level!r}. Expected a ValidationLevel "
+                    f"or one of {[v.value for v in ValidationLevel]}."
+                ) from exc
         self._default_level = level
         possible_paths = []
         if schema_path is None:
