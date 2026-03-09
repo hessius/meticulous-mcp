@@ -1655,19 +1655,19 @@ def test_validate_pressure_stage_with_flow_limit_passes(validator):
     assert len(limit_errors) == 0
 
 
-def test_validate_preinfusion_recommends_lower_pressure(validator):
-    """Test validation recommends 3 bar for pre-infusion stages."""
+def test_validate_low_flow_stage_recommends_lower_pressure(validator):
+    """Test validation recommends 3 bar for low-flow stages (< 2 ml/s)."""
     profile = {
         "name": "Test Profile",
         "id": "test-id",
         "temperature": 90.0,
         "stages": [
             {
-                "name": "Pre-infusion",  # Name indicates pre-infusion
+                "name": "Pre-infusion",
                 "key": "stage_1",
                 "type": "flow",
                 "dynamics": {
-                    "points": [[0, 3]],
+                    "points": [[0, 1.5]],  # Low flow — below 2 ml/s threshold
                     "over": "time",
                     "interpolation": "linear",
                 },
@@ -1678,8 +1678,144 @@ def test_validate_preinfusion_recommends_lower_pressure(validator):
     }
     is_valid, errors = validator.validate(profile)
     assert not is_valid
-    # Should recommend 3 bar for pre-infusion
-    assert any("3 bar" in e for e in errors)
+    # Should recommend 3 bar for low-flow stages
+    assert any("3 bar" in e and "low-flow" in e for e in errors)
+
+
+def test_validate_low_pressure_stage_no_flow_limit_passes(validator):
+    """Test that low-pressure stages (< 6 bar) don't require a flow limit."""
+    profile = {
+        "name": "Test Profile",
+        "id": "test-id",
+        "temperature": 90.0,
+        "stages": [
+            {
+                "name": "Gentle Pre-wet",
+                "key": "stage_1",
+                "type": "pressure",
+                "dynamics": {
+                    "points": [[0, 2], [10, 3]],
+                    "over": "time",
+                    "interpolation": "linear",
+                },
+                "exit_triggers": [{"type": "time", "value": 15, "relative": True}],
+                "limits": [],  # No flow limit, but low pressure
+            }
+        ],
+    }
+    is_valid, errors = validator.validate(profile)
+    flow_limit_errors = [e for e in errors if "flow limit" in e.lower()]
+    assert len(flow_limit_errors) == 0
+
+
+def test_validate_high_pressure_stage_no_flow_limit_fails(validator):
+    """Test that high-pressure stages (>= 6 bar) require a flow limit."""
+    profile = {
+        "name": "Test Profile",
+        "id": "test-id",
+        "temperature": 90.0,
+        "stages": [
+            {
+                "name": "Extraction",
+                "key": "stage_1",
+                "type": "pressure",
+                "dynamics": {
+                    "points": [[0, 9]],
+                    "over": "time",
+                    "interpolation": "linear",
+                },
+                "exit_triggers": [{"type": "time", "value": 30, "relative": True}],
+                "limits": [],  # No flow limit at 9 bar — dangerous
+            }
+        ],
+    }
+    is_valid, errors = validator.validate(profile)
+    assert not is_valid
+    assert any("flow limit" in e.lower() for e in errors)
+
+
+def test_validate_pressure_variable_refs_no_flow_limit_fails(validator):
+    """Test that unresolvable variable refs still trigger flow limit warning."""
+    profile = {
+        "name": "Test Profile",
+        "id": "test-id",
+        "temperature": 90.0,
+        "variables": [
+            {"name": "Pressure", "key": "p", "adjustable": True, "value": 9.0}
+        ],
+        "stages": [
+            {
+                "name": "Variable Stage",
+                "key": "stage_1",
+                "type": "pressure",
+                "dynamics": {
+                    "points": [[0, "$p"]],
+                    "over": "time",
+                    "interpolation": "linear",
+                },
+                "exit_triggers": [{"type": "time", "value": 30, "relative": True}],
+                "limits": [],
+            }
+        ],
+    }
+    is_valid, errors = validator.validate(profile)
+    assert any("flow limit" in e.lower() for e in errors)
+
+
+def test_advise_returns_suggestions_for_low_value_hold(validator):
+    """Test advise() returns suggestions for a low-value hold stage with absolute triggers."""
+    profile = {
+        "name": "Test Profile",
+        "id": "test-id",
+        "temperature": 90.0,
+        "stages": [
+            {
+                "name": "Fill",
+                "key": "stage_1",
+                "type": "flow",
+                "dynamics": {"points": [[0, 1.5]], "over": "time", "interpolation": "linear"},
+                "exit_triggers": [{"type": "time", "value": 10, "relative": True}],
+                "limits": [{"type": "pressure", "value": 3}],
+            },
+            {
+                "name": "Bloom",
+                "key": "stage_2",
+                "type": "flow",
+                "dynamics": {"points": [[0, 0]], "over": "time", "interpolation": "linear"},
+                "exit_triggers": [{"type": "time", "value": 15, "relative": False}],
+                "limits": [{"type": "pressure", "value": 3}],
+            },
+        ],
+    }
+    suggestions = validator.advise(profile)
+    # Should suggest relative triggers for the hold/soak stage
+    assert any("hold/soak" in s.lower() for s in suggestions)
+    # Should suggest weight trigger for the low-value stage
+    assert any("weight" in s.lower() for s in suggestions)
+
+
+def test_advise_empty_for_well_formed_profile(validator):
+    """Test advise() returns empty list for a well-formed profile."""
+    profile = {
+        "name": "Test Profile",
+        "id": "test-id",
+        "temperature": 90.0,
+        "stages": [
+            {
+                "name": "Extraction",
+                "key": "stage_1",
+                "type": "pressure",
+                "dynamics": {"points": [[0, 6], [30, 9]], "over": "time", "interpolation": "linear"},
+                "exit_triggers": [
+                    {"type": "weight", "value": 36, "relative": True},
+                    {"type": "time", "value": 45, "relative": True},
+                ],
+                "limits": [{"type": "flow", "value": 5}],
+            }
+        ],
+    }
+    suggestions = validator.advise(profile)
+    assert len(suggestions) == 0
 
 
 # ==================== Absolute Weight Trigger Tests ====================
@@ -1792,8 +1928,8 @@ def test_validate_relative_weight_triggers_no_conflict(validator):
     assert len(weight_errors) == 0
 
 
-def test_lint_bloom_stage_with_absolute_triggers_warns(validator):
-    """Test linting warns when bloom/rest stages use absolute triggers."""
+def test_advise_hold_stage_with_absolute_triggers(validator):
+    """Test advise() suggests relative triggers for hold/soak stages."""
     profile = {
         "name": "Test Profile",
         "id": "test-id",
@@ -1808,7 +1944,7 @@ def test_lint_bloom_stage_with_absolute_triggers_warns(validator):
                 "limits": [{"type": "pressure", "value": 3}],
             },
             {
-                "name": "The Bloom Room",  # "bloom" in name
+                "name": "The Bloom Room",
                 "key": "stage_2",
                 "type": "flow",
                 "dynamics": {"points": [[0, 0]], "over": "time", "interpolation": "linear"},
@@ -1817,8 +1953,8 @@ def test_lint_bloom_stage_with_absolute_triggers_warns(validator):
             },
         ],
     }
-    warnings = validator.lint(profile)
-    assert any("bloom" in w.lower() and "relative" in w.lower() for w in warnings)
+    suggestions = validator.advise(profile)
+    assert any("hold/soak" in s.lower() and "relative" in s.lower() for s in suggestions)
 
 
 def test_lint_low_absolute_weight_in_later_stage_warns(validator):
@@ -1877,13 +2013,13 @@ def test_lint_missing_variables_array_warns(validator):
     assert any("missing 'variables' array" in w.lower() for w in warnings)
 
 
-def test_lint_empty_variables_array_warns(validator):
-    """Test that empty variables array generates a suggestion warning."""
+def test_lint_empty_variables_array_no_warning(validator):
+    """Test that empty variables array does NOT generate a warning (legitimate choice)."""
     profile = {
         "name": "Test Profile",
         "id": "test-id",
         "temperature": 90.0,
-        "variables": [],  # Empty array is valid but not recommended
+        "variables": [],  # Empty array is a valid design choice
         "stages": [
             {
                 "name": "Stage 1",
@@ -1895,7 +2031,8 @@ def test_lint_empty_variables_array_warns(validator):
         ],
     }
     warnings = validator.lint(profile)
-    assert any("no variables defined" in w.lower() for w in warnings)
+    assert not any("no variables defined" in w.lower() for w in warnings)
+    assert not any("missing 'variables' array" in w.lower() for w in warnings)
 
 
 def test_lint_profile_with_variables_no_warning(validator):
@@ -1923,8 +2060,8 @@ def test_lint_profile_with_variables_no_warning(validator):
     assert not any("missing 'variables' array" in w.lower() for w in warnings)
 
 
-def test_lint_unused_variable_warns(validator):
-    """Test that unused variables generate a warning."""
+def test_lint_does_not_warn_unused_variable(validator):
+    """Test that lint() does NOT warn about unused variables (handled by validate at SAFETY level)."""
     profile = {
         "name": "Test Profile",
         "id": "test-id",
@@ -1944,10 +2081,8 @@ def test_lint_unused_variable_warns(validator):
         ],
     }
     warnings = validator.lint(profile)
-    # Check that dormant_flow (unused) generates a warning
-    assert any("dormant_flow" in w.lower() and "never used" in w.lower() for w in warnings)
-    # Check that active_pressure (used) does NOT generate a "never used" warning
-    assert not any("active_pressure" in w.lower() and "never used" in w.lower() for w in warnings)
+    # lint() should NOT flag unused variables — that's validate()'s job
+    assert not any("dormant_flow" in w.lower() and "never used" in w.lower() for w in warnings)
 
 
 # Tests for _validate_variables (validation errors, not lint warnings)

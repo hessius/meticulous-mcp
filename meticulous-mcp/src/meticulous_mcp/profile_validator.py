@@ -582,61 +582,64 @@ class ProfileValidator:
 
     def _validate_required_limits(self, profile: Dict[str, Any]) -> List[str]:
         """Validate that every stage has required safety limits.
-        
+
         Flow stages must have a pressure limit to prevent machine stall at high pressure.
-        Pressure stages must have a flow limit to prevent gusher shots.
-        
+        Pressure stages at >= 6 bar must have a flow limit to prevent gusher shots.
+        Low-pressure stages (< 6 bar) are not a gusher risk and are skipped.
+
+        Recommended limit values are based on stage dynamics rather than stage names.
+
         Args:
             profile: Profile dictionary to validate
-            
+
         Returns:
             List of validation errors
         """
         errors = []
-        
+
         if "stages" not in profile or not isinstance(profile["stages"], list):
             return errors
-        
+
         for i, stage in enumerate(profile["stages"]):
             if not isinstance(stage, dict):
                 continue
-            
+
             stage_name = stage.get("name", f"Stage {i+1}")
             stage_type = stage.get("type")
             limits = stage.get("limits", [])
-            
+
             if not stage_type:
                 continue
-            
+
             # Get limit types present
             limit_types = set()
             if isinstance(limits, list):
                 for limit in limits:
                     if isinstance(limit, dict) and limit.get("type"):
                         limit_types.add(limit.get("type"))
-            
-            # Determine if this is a pre-infusion stage (for different pressure limit recommendations)
-            stage_name_lower = stage_name.lower()
-            is_preinfusion = any(term in stage_name_lower for term in 
-                                 ["pre-infusion", "preinfusion", "fill", "bloom", "soak", "pre infusion"])
-            
+
+            is_low_value = self._is_low_value_stage(stage)
+
             # Flow stages need pressure limits
             if stage_type == "flow" and "pressure" not in limit_types:
-                recommended_limit = "3 bar" if is_preinfusion else "10 bar"
+                recommended_limit = "3 bar" if is_low_value else "10 bar"
                 errors.append(
                     f"Stage '{stage_name}' is a 'flow' control stage but has no pressure limit. "
                     f"This is dangerous - if the grind is too fine, pressure could spike to 12+ bar and stall. "
-                    f"Add a pressure limit (recommended: {recommended_limit} for {'pre-infusion' if is_preinfusion else 'extraction'} stages)."
+                    f"Add a pressure limit (recommended: {recommended_limit} for {'low-flow' if is_low_value else 'extraction'} stages)."
                 )
-            
-            # Pressure stages need flow limits
+
+            # Pressure stages need flow limits — only when target pressure is >= 6 bar
+            # or when the target is unresolvable (variable references).
             if stage_type == "pressure" and "flow" not in limit_types:
-                errors.append(
-                    f"Stage '{stage_name}' is a 'pressure' control stage but has no flow limit. "
-                    f"This can cause gusher shots if the grind is too coarse. "
-                    f"Add a flow limit (recommended: 5 ml/s)."
-                )
-        
+                max_pressure = self._get_max_dynamics_value(stage)
+                if max_pressure is None or max_pressure >= 6.0:
+                    errors.append(
+                        f"Stage '{stage_name}' is a 'pressure' control stage but has no flow limit. "
+                        f"This can cause gusher shots if the grind is too coarse. "
+                        f"Add a flow limit (recommended: 5 ml/s)."
+                    )
+
         return errors
 
     def _validate_absolute_weight_triggers(self, profile: Dict[str, Any]) -> List[str]:
@@ -724,6 +727,61 @@ class ProfileValidator:
                         if isinstance(val, str) and val.startswith("$"):
                             used[val[1:]] = True
         return used
+
+    def _get_max_dynamics_value(self, stage: Dict[str, Any]) -> Optional[float]:
+        """Return the maximum numeric target value from a stage's dynamics points.
+
+        Variable references ($key) are skipped — we can only classify stages
+        with concrete numeric values.  Returns None when no numeric target
+        values are found.
+        """
+        dynamics = stage.get("dynamics", {})
+        points = dynamics.get("points", [])
+        max_val: Optional[float] = None
+        for point in points:
+            if isinstance(point, list):
+                for val in point[1:]:  # skip the x-axis value at index 0
+                    if isinstance(val, (int, float)):
+                        if max_val is None or val > max_val:
+                            max_val = val
+        return max_val
+
+    def _is_low_value_stage(self, stage: Dict[str, Any]) -> bool:
+        """Determine if a stage targets low values (pre-infusion-like behavior).
+
+        Classification thresholds:
+        - Flow stages: max target < 2 ml/s
+        - Pressure stages: max target < 4 bar
+
+        Returns False if dynamics contain only variable references (unresolvable).
+        """
+        stage_type = stage.get("type")
+        max_val = self._get_max_dynamics_value(stage)
+        if max_val is None:
+            return False
+        if stage_type == "flow":
+            return max_val < 2.0
+        if stage_type == "pressure":
+            return max_val < 4.0
+        return False
+
+    def _is_hold_stage(self, stage: Dict[str, Any]) -> bool:
+        """Determine if a stage holds constant (bloom/soak-like behavior).
+
+        A hold stage has either a single dynamics point or all numeric target
+        values are identical (flat curve).  Only evaluates numeric values.
+        """
+        dynamics = stage.get("dynamics", {})
+        points = dynamics.get("points", [])
+        numeric_values = []
+        for point in points:
+            if isinstance(point, list) and len(point) >= 2:
+                val = point[1]
+                if isinstance(val, (int, float)):
+                    numeric_values.append(val)
+        if len(numeric_values) <= 1:
+            return True
+        return all(v == numeric_values[0] for v in numeric_values)
 
     def _validate_variable_naming(self, profile: Dict[str, Any]) -> List[str]:
         """Validate variable naming conventions — emoji rules (STRICT level check).
@@ -940,42 +998,7 @@ class ProfileValidator:
                                         warnings.append(f"Stage '{stage_name}' has negative flow limit ({limit_value} ml/s) - should be >= 0")
                                     elif limit_value > 8:
                                         warnings.append(f"Stage '{stage_name}' has very high flow limit ({limit_value} ml/s) - consider lowering to 5-6 ml/s for better control")
-                    
-                    # Pre-infusion specific recommendations
-                    stage_name_lower = stage_name.lower()
-                    is_preinfusion = any(term in stage_name_lower for term in 
-                                         ["pre-infusion", "preinfusion", "fill", "bloom", "soak", "pre infusion"])
-                    if is_preinfusion:
-                        # Check for high pressure limits on pre-infusion stages
-                        if isinstance(limits, list):
-                            for limit in limits:
-                                if isinstance(limit, dict) and limit.get("type") == "pressure":
-                                    limit_value = limit.get("value")
-                                    if isinstance(limit_value, (int, float)) and limit_value > 4:
-                                        warnings.append(f"Stage '{stage_name}' is a pre-infusion stage with pressure limit of {limit_value} bar - consider lowering to 3-4 bar for gentler saturation")
-                        
-                        # Check for weight-based early exit (adaptive pre-infusion)
-                        has_weight_trigger = any(et.get("type") == "weight" for et in exit_triggers if isinstance(et, dict))
-                        if not has_weight_trigger:
-                            warnings.append(f"Stage '{stage_name}' is a pre-infusion stage without a weight-based exit trigger. Consider adding 'weight >= 3-5g' to detect early dripping and adapt to grind variations.")
-                    
-                    # Check for bloom/soak/hold stages that should use relative triggers
-                    is_bloom_stage = any(term in stage_name_lower for term in 
-                                         ["bloom", "soak", "hold", "rest", "pause", "wait"])
-                    if is_bloom_stage and i > 0:  # Only warn for non-first stages
-                        # Check if any exit triggers are absolute (relative=false)
-                        has_absolute_trigger = False
-                        for trigger in exit_triggers:
-                            if isinstance(trigger, dict):
-                                if not trigger.get("relative", False):
-                                    has_absolute_trigger = True
-                                    break
-                        if has_absolute_trigger:
-                            warnings.append(
-                                f"Stage '{stage_name}' appears to be a bloom/rest stage but uses absolute exit triggers. "
-                                f"Consider using 'relative: true' for exit triggers so the stage duration is independent of previous stages."
-                            )
-                    
+
                     # Check for low absolute weight triggers in non-first stages
                     if i > 0:  # Not the first stage
                         for trigger in exit_triggers:
@@ -1014,34 +1037,22 @@ class ProfileValidator:
                     warnings.append(f"Final weight {weight}g is quite high - this approaches lungo/ristretto territory")
         
         # Check variables - the variables array should always exist for app compatibility
-        # Handle three cases: missing key, empty array, or populated array
         if "variables" not in profile:
-            # Case 1: Key missing entirely - most critical, affects app compatibility
             warnings.append(
                 "Profile is missing 'variables' array - this field must be present (even if empty) "
                 "for Meticulous app compatibility. The app may crash when trying to add variables."
             )
         else:
             variables = profile.get("variables", [])
-            if not variables:
-                # Case 2: Empty array - valid but could be more useful
-                warnings.append(
-                    "Profile has no variables defined - consider adding variables (e.g., target pressure, "
-                    "bloom flow rate) for easier adjustments during brewing. Variables allow you to tweak "
-                    "profile parameters without editing individual stage dynamics."
-                )
-            else:
-                # Case 3: Has variables - check for undefined references and unused variables
-                var_keys = [v.get("key") for v in variables if isinstance(v, dict)]
-                
+            if variables:
                 # Check for undefined variable references in stages
+                var_keys = [v.get("key") for v in variables if isinstance(v, dict)]
+
                 if "stages" in profile:
                     stages = profile["stages"]
-                    variables_used = set()
                     for stage in stages:
                         if not isinstance(stage, dict):
                             continue
-                        # Check dynamics points for variable references
                         dynamics = stage.get("dynamics", {})
                         points = dynamics.get("points", [])
                         for point in points:
@@ -1049,14 +1060,74 @@ class ProfileValidator:
                                 for val in point:
                                     if isinstance(val, str) and val.startswith("$"):
                                         var_key = val[1:]  # Remove $
-                                        variables_used.add(var_key)
                                         if var_key not in var_keys:
                                             warnings.append(f"Stage '{stage.get('name', 'unknown')}' references variable '${var_key}' but it's not defined in variables")
-                    
-                    # Check for unused variables
-                    unused_vars = set(var_keys) - variables_used
-                    for unused in unused_vars:
-                        warnings.append(f"Variable '{unused}' is defined but never used in any stage dynamics")
 
         return warnings
+
+    def advise(self, profile: Dict[str, Any]) -> List[str]:
+        """Return opt-in design guidance for a profile.
+
+        Unlike lint() which flags structural anomalies, advise() suggests
+        design improvements based on espresso best practices.  These are
+        subjective recommendations, not errors.
+
+        Args:
+            profile: Profile dictionary to analyze
+
+        Returns:
+            List of design suggestions
+        """
+        suggestions: List[str] = []
+
+        if "stages" not in profile or not isinstance(profile["stages"], list):
+            return suggestions
+
+        stages = profile["stages"]
+        for i, stage in enumerate(stages):
+            if not isinstance(stage, dict):
+                continue
+
+            stage_name = stage.get("name", f"Stage {i+1}")
+            exit_triggers = stage.get("exit_triggers", [])
+            limits = stage.get("limits", [])
+            is_low_value = self._is_low_value_stage(stage)
+            is_hold = self._is_hold_stage(stage)
+
+            # Suggestion: Low-value stages with high pressure limits
+            if is_low_value and isinstance(limits, list):
+                for limit in limits:
+                    if isinstance(limit, dict) and limit.get("type") == "pressure":
+                        limit_value = limit.get("value")
+                        if isinstance(limit_value, (int, float)) and limit_value > 4:
+                            suggestions.append(
+                                f"Stage '{stage_name}' targets low values but has a pressure limit of "
+                                f"{limit_value} bar - consider lowering to 3-4 bar for gentler saturation."
+                            )
+
+            # Suggestion: Low-value stages without weight-based exit
+            if is_low_value:
+                has_weight_trigger = any(
+                    et.get("type") == "weight" for et in exit_triggers if isinstance(et, dict)
+                )
+                if not has_weight_trigger:
+                    suggestions.append(
+                        f"Stage '{stage_name}' targets low values without a weight-based exit trigger. "
+                        f"Consider adding 'weight >= 3-5g' to detect early dripping and adapt to grind variations."
+                    )
+
+            # Suggestion: Hold stages at low values with absolute triggers (bloom/soak pattern)
+            if is_hold and is_low_value and i > 0:
+                has_absolute_trigger = any(
+                    isinstance(t, dict) and not t.get("relative", False)
+                    for t in exit_triggers
+                )
+                if has_absolute_trigger:
+                    suggestions.append(
+                        f"Stage '{stage_name}' appears to be a hold/soak stage but uses absolute exit triggers. "
+                        f"Consider using 'relative: true' for exit triggers so the stage duration is "
+                        f"independent of previous stages."
+                    )
+
+        return suggestions
 

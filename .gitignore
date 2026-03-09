@@ -109,3 +109,12 @@ dmypy.json
 
 # Cython debug symbols
 cython_debug/
+
+.continuity/
+
+# Continuity
+SESSION_HANDOFF.md
+
+AGENTS.md
+CLAUDE.md
+GEMINI.md
