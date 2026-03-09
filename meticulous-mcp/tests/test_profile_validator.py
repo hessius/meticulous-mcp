@@ -907,7 +907,8 @@ def test_validate_interpolation_linear_passes(validator):
             }
         ],
     }
-    is_valid, errors = validator.validate(profile)
+    is_valid, errors = validator.validate(profile, level=ValidationLevel.MACHINE)
+    assert is_valid
     interpolation_errors = [e for e in errors if "interpolation" in e.lower()]
     assert len(interpolation_errors) == 0
 
@@ -933,7 +934,8 @@ def test_validate_interpolation_curve_passes(validator):
             }
         ],
     }
-    is_valid, errors = validator.validate(profile)
+    is_valid, errors = validator.validate(profile, level=ValidationLevel.MACHINE)
+    assert is_valid
     interpolation_errors = [e for e in errors if "interpolation" in e.lower()]
     assert len(interpolation_errors) == 0
 
