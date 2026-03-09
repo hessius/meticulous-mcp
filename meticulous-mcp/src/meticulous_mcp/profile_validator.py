@@ -295,11 +295,17 @@ class ProfileValidator:
             if isinstance(dynamics, dict):
                 interpolation = dynamics.get("interpolation")
                 if interpolation is not None and interpolation not in valid_interpolations:
-                    errors.append(
-                        f"Stage '{stage_name}' has invalid interpolation value '{interpolation}'. "
-                        f"Only 'linear' and 'curve' are supported. "
-                        f"The value 'none' is not supported by the Meticulous machine and will cause it to stall."
-                    )
+                    if interpolation == "none":
+                        errors.append(
+                            f"Stage '{stage_name}' has invalid interpolation value '{interpolation}'. "
+                            f"Only 'linear' and 'curve' are supported. "
+                            f"The value 'none' is not supported by the Meticulous machine and will cause it to stall."
+                        )
+                    else:
+                        errors.append(
+                            f"Stage '{stage_name}' has invalid interpolation value '{interpolation}'. "
+                            f"Only 'linear' and 'curve' are supported."
+                        )
                 
                 # Check that 'curve' interpolation has at least 2 points
                 points = dynamics.get("points", [])
