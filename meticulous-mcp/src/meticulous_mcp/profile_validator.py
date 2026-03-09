@@ -130,6 +130,16 @@ class ProfileValidator:
         if level is None:
             level = self._default_level
 
+        # Normalize level to a ValidationLevel instance to avoid incorrect comparisons
+        if isinstance(level, str):
+            try:
+                level = ValidationLevel(level)
+            except ValueError as exc:
+                raise ValueError(f"Unknown validation level: {level!r}") from exc
+        elif not isinstance(level, ValidationLevel):
+            raise TypeError(
+                f"level must be a ValidationLevel or str, got {type(level).__name__}"
+            )
         errors = []
         try:
             self._validator.validate(profile)
