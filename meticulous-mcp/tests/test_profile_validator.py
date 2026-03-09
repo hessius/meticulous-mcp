@@ -1089,7 +1089,8 @@ def test_validate_valid_dynamics_over_passes(validator):
                 }
             ],
         }
-        is_valid, errors = validator.validate(profile)
+        is_valid, errors = validator.validate(profile, level=ValidationLevel.MACHINE)
+        assert is_valid
         over_errors = [e for e in errors if "dynamics.over" in e.lower()]
         assert len(over_errors) == 0
 
