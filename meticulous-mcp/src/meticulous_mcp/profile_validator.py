@@ -737,21 +737,32 @@ class ProfileValidator:
         )
 
     def _variable_usage_map(self, profile: Dict[str, Any]) -> Dict[str, bool]:
-        """Return a dict mapping variable key → True if used in any stage dynamics."""
+        """Return a dict mapping variable key → True if used anywhere in any stage.
+
+        Recursively scans every value in each stage object (dynamics points,
+        limits, exit_triggers, and any future nested fields) for $key variable
+        references.
+        """
         used: Dict[str, bool] = {}
         if "stages" not in profile:
             return used
         for stage in profile["stages"]:
             if not isinstance(stage, dict):
                 continue
-            dynamics = stage.get("dynamics", {})
-            points = dynamics.get("points", [])
-            for point in points:
-                if isinstance(point, list):
-                    for val in point:
-                        if isinstance(val, str) and val.startswith("$"):
-                            used[val[1:]] = True
+            self._collect_variable_refs(stage, used)
         return used
+
+    def _collect_variable_refs(self, obj: Any, used: Dict[str, bool]) -> None:
+        """Recursively find all $key variable references in a nested structure."""
+        if isinstance(obj, str):
+            if obj.startswith("$"):
+                used[obj[1:]] = True
+        elif isinstance(obj, list):
+            for item in obj:
+                self._collect_variable_refs(item, used)
+        elif isinstance(obj, dict):
+            for val in obj.values():
+                self._collect_variable_refs(val, used)
 
     def _get_max_dynamics_value(self, stage: Dict[str, Any]) -> Optional[float]:
         """Return the maximum numeric target value from a stage's dynamics points.

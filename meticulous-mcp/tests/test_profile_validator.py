@@ -2240,6 +2240,81 @@ def test_validate_variables_unused_info_passes(validator):
     assert not any("roast_level" in e.lower() and "never used" in e.lower() for e in errors)
 
 
+def test_validate_variable_used_in_limit_is_not_unused(validator):
+    """Test that a variable referenced in a limit value is counted as used."""
+    profile = {
+        "name": "Test Profile",
+        "id": "test-id",
+        "temperature": 90.0,
+        "variables": [
+            {"name": "Max Flow", "key": "max_flow", "adjustable": True, "value": 4.0}
+        ],
+        "stages": [
+            {
+                "name": "Stage 1",
+                "key": "stage_1",
+                "type": "pressure",
+                "dynamics": {"points": [[0, 8]], "over": "time"},
+                "exit_triggers": [{"type": "time", "value": 30}],
+                "limits": [{"type": "flow", "value": "$max_flow"}],
+            }
+        ],
+    }
+    is_valid, errors = validator.validate(profile)
+    assert not any("max_flow" in e.lower() and "never used" in e.lower() for e in errors)
+
+
+def test_validate_variable_used_in_exit_trigger_is_not_unused(validator):
+    """Test that a variable referenced in an exit trigger value is counted as used."""
+    profile = {
+        "name": "Test Profile",
+        "id": "test-id",
+        "temperature": 90.0,
+        "variables": [
+            {"name": "Target Weight", "key": "target_weight", "adjustable": True, "value": 40.0}
+        ],
+        "stages": [
+            {
+                "name": "Stage 1",
+                "key": "stage_1",
+                "type": "pressure",
+                "dynamics": {"points": [[0, 8]], "over": "time"},
+                "exit_triggers": [
+                    {"type": "weight", "value": "$target_weight"},
+                    {"type": "time", "value": 60},
+                ],
+                "limits": [{"type": "flow", "value": 5}],
+            }
+        ],
+    }
+    is_valid, errors = validator.validate(profile)
+    assert not any("target_weight" in e.lower() and "never used" in e.lower() for e in errors)
+
+
+def test_validate_variable_used_only_in_dynamics_is_not_unused(validator):
+    """Test that a variable referenced only in dynamics points is counted as used."""
+    profile = {
+        "name": "Test Profile",
+        "id": "test-id",
+        "temperature": 90.0,
+        "variables": [
+            {"name": "Target Pressure", "key": "target_pressure", "adjustable": True, "value": 8.0}
+        ],
+        "stages": [
+            {
+                "name": "Stage 1",
+                "key": "stage_1",
+                "type": "pressure",
+                "dynamics": {"points": [[0, "$target_pressure"]], "over": "time"},
+                "exit_triggers": [{"type": "time", "value": 30}],
+                "limits": [{"type": "flow", "value": 5}],
+            }
+        ],
+    }
+    is_valid, errors = validator.validate(profile)
+    assert not any("target_pressure" in e.lower() and "never used" in e.lower() for e in errors)
+
+
 # ==================== ValidationLevel System Tests ====================
 
 
