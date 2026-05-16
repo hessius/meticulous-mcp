@@ -397,7 +397,7 @@ class ProfileValidator:
             List of exit trigger validation errors
         """
         errors = []
-        valid_trigger_types = {"weight", "pressure", "flow", "time", "piston_position", "power", "user_interaction"}
+        valid_trigger_types = {"weight", "pressure", "flow", "time", "piston_position", "power", "user_interaction", "flow_dose_correlation", "pressure_rise"}
         valid_comparisons = {">=", "<="}
         
         if "stages" not in profile or not isinstance(profile["stages"], list):

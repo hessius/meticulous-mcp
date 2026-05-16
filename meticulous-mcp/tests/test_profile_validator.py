@@ -1178,7 +1178,7 @@ def test_validate_invalid_exit_trigger_type_fails(validator):
 
 def test_validate_valid_exit_trigger_types_pass(validator):
     """Test validation passes for valid exit trigger types."""
-    valid_types = ["weight", "pressure", "flow", "time", "piston_position", "power", "user_interaction"]
+    valid_types = ["weight", "pressure", "flow", "time", "piston_position", "power", "user_interaction", "flow_dose_correlation", "pressure_rise"]
     for trigger_type in valid_types:
         profile = {
             "name": "Test Profile",
